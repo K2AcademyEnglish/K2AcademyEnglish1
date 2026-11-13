@@ -738,7 +738,7 @@ const QB_KEY_LABEL = /^\[\s*(해석|본문 해석|풀이|해설|정답 풀이|Wo
 // PDF → 페이지·단 순서의 줄 목록
 async function qbKeyLines(pdfjs, data) {
   const doc = await pdfjs.getDocument({ data: data, disableFontFace: true, isEvalSupported: false }).promise;
-  const lines = [];
+  let lines = [];
   for (let pn = 1; pn <= doc.numPages; pn++) {
     const page = await doc.getPage(pn);
     const vp = page.getViewport({ scale: 1 });
@@ -750,8 +750,12 @@ async function qbKeyLines(pdfjs, data) {
     seg.vs.filter(v => v.y1 - v.y0 > vp.height * 0.4 && v.x > vp.width * 0.15 && v.x < vp.width * 0.85)
       .sort((a, b) => a.x - b.x).forEach(v => { if (!cuts.length || v.x - cuts[cuts.length - 1] > 20) cuts.push(v.x); });
     const colOf = x => { let k = 0; while (k < cuts.length && x > cuts[k]) k++; return k; };
+    // 단 구분선이 있으면 그 선보다 위(머리말: "2022학년도 7월 전국연합학력평가 … 고3")는 뺍니다.
+    const colLines = seg.vs.filter(v => v.y1 - v.y0 > vp.height * 0.4 && v.x > vp.width * 0.15 && v.x < vp.width * 0.85);
+    const bodyTop = colLines.length ? Math.max(...colLines.map(v => v.y1)) + 14 : Infinity;
+    const bodyBottom = -Infinity;   // 아래쪽은 쪽 번호뿐이라 자르지 않습니다 (본문 마지막 줄이 선보다 아래로 내려가는 경우가 있음)
     for (let col = 0; col <= cuts.length; col++) {
-      const cs = chars.filter(c => colOf((c.x0 + c.x1) / 2) === col).sort((a, b) => (b.y - a.y) || (a.x0 - b.x0));
+      const cs = chars.filter(c => c.y <= bodyTop && c.y >= bodyBottom && colOf((c.x0 + c.x1) / 2) === col).sort((a, b) => (b.y - a.y) || (a.x0 - b.x0));
       const ls = [];
       cs.forEach(c => {
         const ln = ls.find(l => Math.abs(l.y - c.y) < Math.max(1.5, c.size * 0.3));
@@ -772,7 +776,7 @@ async function qbKeyLines(pdfjs, data) {
         // 쪽 번호·머리말
         if (/^\d{1,3}$/.test(text) || /^[•·]\s*영어\s*영역\s*[•·]$/.test(text)) return;
         const size = vis.map(c => c.size).sort((a, b) => a - b)[Math.floor(vis.length / 2)];
-        built.push({ page: pn, col, text: text.replace(/­/g, '-'), trail: /\s$/.test(s), x0: vis[0].x0, x1: vis[vis.length - 1].x1, size });
+        built.push({ page: pn, yr: l.y / vp.height, col, text: text.replace(/­/g, '-'), trail: /\s$/.test(s), x0: vis[0].x0, x1: vis[vis.length - 1].x1, size });
       });
       // 이 단의 왼쪽·오른쪽 기준선 (가장 흔한 값)
       const mode = arr => { const m = {}; arr.forEach(v => { const k = Math.round(v); m[k] = (m[k] || 0) + 1; }); return Number(Object.keys(m).sort((a, b) => m[b] - m[a])[0]); };
@@ -782,6 +786,13 @@ async function qbKeyLines(pdfjs, data) {
       built.forEach(l => { l.left = left; l.right = right; l.short = l.x1 < right - l.size * 1.5; });
       lines.push(...built);
     }
+  }
+  // 여러 쪽에 똑같이 되풀이되는 짧은 줄(시험 이름·학년 같은 머리말)은 뺍니다.
+  if (doc.numPages >= 2) {
+    const pagesOf = {};
+    lines.forEach(l => { if (l.text.length <= 30 && (l.yr > 0.85 || l.yr < 0.08)) (pagesOf[l.text] = pagesOf[l.text] || new Set()).add(l.page); });   // 쪽 맨 위·맨 아래에 있는 줄만
+    const rep = new Set(Object.keys(pagesOf).filter(t => pagesOf[t].size >= Math.max(2, Math.ceil(doc.numPages * 0.5)) && !/^\[|^\d{1,2}\s*[.~∼]/.test(t)));
+    lines = lines.filter(l => !(rep.has(l.text) && (l.yr > 0.85 || l.yr < 0.08)) && !/^(\d{4}\s*학년도.*|.*전국연합학력평가|정답\s*및\s*해설|고\s*[1-3]|[•·]?\s*영어\s*영역\s*[•·]?)$/.test(l.text));
   }
   return { lines, pages: doc.numPages };
 }
@@ -851,6 +862,7 @@ async function qbPdfKeyParse(pdfjs, data) {
   lines.forEach(l => {
     const t = l.text;
     let m;
+    if ((m = t.match(/^(\d{1,2})\s*[~∼～\-–]\s*(\d{1,2})\s*\.\s*\[\s*출제\s*의도\s*\]\s*(.*)$/))) { cur = { kind: 'group', from: Number(m[1]), to: Number(m[2]), intent: m[3].trim(), ls: [] }; blocks.push(cur); return; }
     if ((m = t.match(/^(\d{1,2})\s*\.\s*\[\s*출제\s*의도\s*\]\s*(.*)$/))) { cur = { kind: 'item', num: Number(m[1]), intent: m[2].trim(), ls: [] }; blocks.push(cur); return; }
     if ((m = t.match(/^\[\s*(\d{1,2})\s*[~∼～\-–]\s*(\d{1,2})\s*\]\s*(.*)$/)) && !/[가-힣]{6,}/.test(m[3])) { cur = { kind: 'group', from: Number(m[1]), to: Number(m[2]), ls: [] }; blocks.push(cur); return; }
     if (cur) cur.ls.push(l);
@@ -862,6 +874,9 @@ async function qbPdfKeyParse(pdfjs, data) {
     if (labeled) {
       let sec = 'trans';
       const bucket = { trans: [], expl: [], vocab: [] };
+      // 첫 표시([해석] 등) 앞의 줄은 두 줄로 넘어간 출제의도입니다.
+      const firstLabel = b.ls.findIndex(l => QB_KEY_LABEL.test(l.text));
+      if (firstLabel > 0 && firstLabel <= 2 && b.ls.slice(0, firstLabel).every(l => !/[.?!]$/.test(l.text) && l.text.length < 40)) { b.intent = (b.intent || '') + ' ' + b.ls.slice(0, firstLabel).map(l => l.text).join(' '); b.ls = b.ls.slice(firstLabel); }
       b.ls.forEach(l => {
         const lb = l.text.match(QB_KEY_LABEL);
         if (lb) {
@@ -896,7 +911,7 @@ async function qbPdfKeyParse(pdfjs, data) {
     if (b.kind === 'item') {
       const it = items[b.num] || (items[b.num] = { intent: b.intent, trans: [], expl: [], vocab: [] });
       it.trans.push(...trans); it.expl.push(...expl); it.vocab.push(...vocab);
-    } else groups.push({ from: b.from, to: b.to, trans: trans, vocab: vocab });
+    } else groups.push({ from: b.from, to: b.to, trans: trans, expl: expl, vocab: vocab });
   });
   // 표시 없는 형식에서 장문 문항 덩어리에 붙은 어휘는 묶음 쪽으로 옮깁니다.
   groups.forEach(g => {
@@ -920,6 +935,7 @@ function qbKeyCell(key, num, parts, isGroupHead) {
   if (g && isGroupHead) {
     expl = [];
     for (let n = g.from; n <= g.to; n++) { const m = key.items[n]; if (m && m.expl.length) expl.push(n + '번) ' + m.expl.join('\n')); }
+    if (!expl.length && g.expl && g.expl.length) expl = [g.expl.join('\n')];
   } else expl = it.expl.length ? [it.expl.join('\n')] : [];
   const vocab = (g && g.vocab.length ? g.vocab : []).concat(it.vocab);
   const want = [];
