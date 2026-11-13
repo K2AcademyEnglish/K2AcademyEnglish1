@@ -1,0 +1,42 @@
+/* ===================== 문제 화면 필기(펜) ===================== */
+.online-box .op-left, .online-box .op-right { position: relative; }
+/* 필기 층: 크기는 1px이지만 넘치는 부분까지 그려지므로 칸 전체(스크롤 포함)에 그릴 수 있습니다. 누르기는 통과시킵니다. */
+/* 필기 층 전체를 '곱하기'로 겹칩니다: 펜·형광펜으로 글자 위를 지나가도 아래 글자가 가려지지 않고 비쳐 보입니다. */
+.ink-layer { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; pointer-events: none; z-index: 5; mix-blend-mode: multiply; }
+
+/* 펜 켜짐: 드래그가 필기가 되도록 스크롤·글자 선택을 잠급니다 */
+body.ink-mode .online-box .op-left, body.ink-mode .online-box .op-right {
+  touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; cursor: crosshair;
+}
+body.ink-mode .online-box .op-left input, body.ink-mode .online-box .op-right input,
+body.ink-mode .online-box button { cursor: auto; }
+
+.ink-toggle-gap { display: inline-block; width: 10px; }
+#quizPage .online-box .op-font-bar button.ink-toggle.active { background: #1e40af !important; border-color: #1e40af !important; color: #fff !important; }
+
+/* 도구 막대: 펜을 켰거나 전자펜이 감지되면 보입니다 */
+.online-box .ink-bar { display: none; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 8px; padding: 6px 8px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; font-family: var(--font-base); font-size: 12px; }
+body.ink-mode .online-box .ink-bar, body.ink-stylus .online-box .ink-bar { display: flex; }
+html body .online-box .ink-bar button.ink-btn {
+  width: auto !important; min-width: 0 !important; height: 28px !important; margin: 0 !important; padding: 0 8px !important;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: #fff !important; color: #334155 !important; border: 1px solid #cbd5e1 !important; border-radius: 6px !important;
+  font-size: 12px !important; font-weight: 600 !important; line-height: 1 !important; cursor: pointer; box-shadow: none !important;
+}
+html body .online-box .ink-bar button.ink-btn.active { border-color: #1e40af !important; box-shadow: 0 0 0 2px #93c5fd !important; }
+.ink-bar .ink-btn i { display: inline-block; width: 14px; height: 14px; border-radius: 50%; }
+.ink-bar .ink-btn i.ink-hl-dot { background: #fde047; border-radius: 3px; width: 16px; height: 10px; }
+/* 펜·형광펜 색 서랍: 버튼을 누르면 옆에 색이 펼쳐지고, 고르면 닫힙니다 */
+.ink-bar .ink-caret { font-size: 10px; color: #64748b; transition: transform .15s; }
+.ink-bar .ink-group.open .ink-caret { transform: rotate(180deg); }
+.ink-bar .ink-pal { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; background: #fff; border: 1px dashed #a5b4fc; border-radius: 8px; }
+.ink-bar .ink-pal[hidden] { display: none; }
+html body .online-box .ink-bar button.ink-btn.ink-sw { width: 30px !important; padding: 0 !important; justify-content: center; }
+.ink-bar .ink-sep { width: 1px; height: 18px; background: #c7d2fe; margin: 0 4px; }
+.ink-bar .ink-hint { flex: 1 1 100%; color: #6366f1; font-size: 11px; margin-top: 2px; }
+
+/* 휴대폰(좁은 화면)·인쇄에서는 필기 기능을 숨깁니다 */
+@media screen and (max-width: 819px) {
+  .ink-toggle, .ink-toggle-gap, .online-box .ink-bar { display: none !important; }
+}
+@media print { .ink-layer, .ink-bar, .ink-toggle { display: none !important; } }

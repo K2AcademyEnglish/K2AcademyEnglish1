@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+  <title>케이투학원 영어</title>
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script defer src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
+  <link rel="apple-touch-icon" href="https://i.imgur.com/NVHBqH2.png">
+  <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
+  <link rel="stylesheet" href="style.css?v=20261113a">
+  <link rel="stylesheet" href="print.css?v=20261113a">
+  <link rel="stylesheet" href="notice-points.css?v=20261113a">
+  <link rel="stylesheet" href="ink.css?v=20261113a">
+  <link rel="stylesheet" href="qbank.css?v=20261113a">
+</head>
+
+<body>
+
+<div id="printHeader">
+    <div style="flex:1;"><span class="info" id="printDate"></span></div>
+    <div style="flex:2; text-align:center;"><span class="title">영 어 영 역</span></div>
+    <div style="flex:1; text-align:right;"><span class="info" id="printStudent"></span></div>
+  </div>
+
+  <div id="printSection" style="display:none;"></div>
+
+<div id="globalHeader">
+  <div class="header-inner">
+    
+    <div class="header-left">
+      <button id="btnMobileMenu" type="button">≡</button>
+      
+      <div class="brand">케이투학원</div>
+      
+      <!-- [변경] 상단 탭 영역 -->
+    <div class="top-tabs" id="mainTabs" style="display:none;">
+        <!-- 학생용 메뉴 -->
+        <div id="studentTabGroup" style="display:none; gap:6px;">
+          <button class="top-tab" id="topTabAssignment" type="button" onclick="routeTo('assignment')">📁 과제</button>
+          <button class="top-tab" id="topTabVocab" type="button" onclick="routeTo('vocab')">📖 단어장</button>
+          <button class="top-tab" id="topTabQuiz" type="button" onclick="routeTo('quiz')">📝 온라인 문제</button>
+          <button class="top-tab" id="topTabWrong" type="button" onclick="routeTo('wrong')">📕 오답노트</button>
+          <button class="top-tab" id="topTabPoints" type="button" data-np="open:points">⭐ 포인트</button>
+        </div>
+        <!-- 관리자용 메뉴 -->
+        <div id="adminTabGroup" style="display:none; gap:6px;">
+          <button class="top-tab" id="topTabAdminCreate" type="button" onclick="routeTo('admin-create')">📝 과제출제</button>
+          <button class="top-tab" id="topTabAdminWeekly" type="button" onclick="routeTo('weekly')">📅 주간평가</button>
+          <button class="top-tab" id="topTabAdminHistory" type="button" onclick="routeTo('admin-history')">📋 배부기록</button>
+          <button class="top-tab" id="topTabAdminVocab" type="button" onclick="routeTo('admin-vocab')">📖 단어장조회</button>
+          <button class="top-tab" id="topTabAdminQbank" type="button" onclick="routeTo('admin-qbank')">🗂 문제은행</button>
+          <button class="top-tab" id="topTabAdminNP" type="button" data-np="open:requests">📢 공지·포인트<span id="npAdminTabBadge" class="np-count" style="display:none;"></span></button>
+        </div>
+      </div>
+    </div> <!-- .header-left 종료 -->
+
+    <!-- 우측 유저 정보 영역 -->
+    <div class="userbox">
+      <input id="headerUsername" type="text" class="user-input" placeholder="이름">
+      <button class="btn-small" id="btnHeaderLogin">로그인</button>
+      
+      <button class="np-bell" id="btnBell" type="button" data-np="open" style="display:none;" aria-label="알림">🔔<span id="bellBadge" class="np-bell-badge" style="display:none;"></span></button>
+      <span class="user-badge" id="userBadge"></span>
+      <button class="btn-small" id="btnOpenVocab" style="display:none; margin-left:4px; background:#374151;">단어</button>
+      <button class="btn-small" id="btnShowMap" style="display:none; margin-left:4px; background:#374151;">번호</button>
+      <button class="btn-small" id="btnGoStart" style="display:none; margin-left:4px; background:#ef4444; color:white;">로그아웃</button>
+    </div>
+  </div>
+</div>
+
+  <!-- ✅ 첫 진입: 이름 입력 -->
+<div class="panel" id="startPage">
+  <h1>케이투학원 영어</h1>
+
+  <input
+    type="text"
+    id="userIdInput"
+    placeholder="ID를 입력하십시오" 
+    >
+  <label class="keep-login"><input type="checkbox" id="keepLoginChk"> 이 기기에서 로그인 유지 (7일)</label>
+  <button
+    id="btnStart"
+    type="button"
+    >로그인</button>
+
+  <div id="warning">ID를 입력해 주십시오.</div>
+</div>
+
+  <div class="panel" id="studentMainPage" style="text-align: center;">
+    <!-- 내 포인트 · 최근 공지 (notice-points.js가 채웁니다) -->
+    <div id="npHomeCard" style="display:none;"></div>
+    <h2 style="color: #111827; margin-bottom: 24px;">어떤 학습을 시작하시겠습니까?</h2>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+      <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #2b6cb0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('assignment')">
+        <span style="font-size: 32px; line-height: 1;">📁</span><span style="font-weight: bold;">과제</span>
+      </button>
+      <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #059669; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('vocab')">
+        <span style="font-size: 32px; line-height: 1;">📖</span><span style="font-weight: bold;">단어장</span>
+      </button>
+      <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #d97706; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('quiz')">
+        <span style="font-size: 32px; line-height: 1;">📝</span><span style="font-weight: bold;">온라인 문제</span>
+      </button>
+      <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #dc2626; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('wrong')">
+        <span style="font-size: 32px; line-height: 1;">📕</span><span style="font-weight: bold;">오답노트</span>
+      </button>
+    </div>
+  </div>
+
+    <div id="selectWarning" style="display:none;color:#c53030;margin:8px 0 14px;font-size:14px;"></div>
+  <div class="panel" id="selectPage">
+    <h2>🎯 문제 범위 선택</h2>
+    
+    <div class="sf-block">
+      <div class="sf-label">학년 <span class="sf-sub" id="sfGradeCount">선택 안 함</span><span class="sf-hint">여러 개 고를 수 있습니다</span></div>
+      <div class="sf-grades" id="sfGrades"></div>
+    </div>
+
+    <div class="sf-row">
+      <div class="sf-block sf-diff-block">
+        <div class="sf-label">난이도 <span class="sf-sub" id="sfDiffCount">전체</span>
+          <button type="button" class="sf-link" data-sf="clear:diff">선택 해제</button></div>
+        <div class="sf-diffs" id="sfDiffs"></div>
+        <div class="sf-hint">고르지 않으면 모든 난이도에서 나옵니다.</div>
+      </div>
+      <div class="sf-block sf-type-block">
+        <div class="sf-label">유형 <span class="sf-sub" id="sfTypeCount">전체</span>
+          <button type="button" class="sf-link" data-sf="all:type">모두 체크</button>
+          <button type="button" class="sf-link" data-sf="clear:type">해제</button></div>
+        <div class="sf-types" id="sfTypes"></div>
+        <div class="sf-hint">체크하지 않으면 모든 유형에서 나옵니다.</div>
+      </div>
+    </div>
+
+    <!-- 푸는 방식: 랜덤 / 골라서 -->
+    <div class="sp-mode-tabs" id="spModeTabs">
+      <button type="button" data-mode="random" class="on">🎲 랜덤으로 풀기</button>
+      <button type="button" data-mode="pick">✅ 골라서 풀기</button>
+    </div>
+
+    <div id="spRandomBox">
+    <div class="form-group" style="margin: 20px 0 10px;">
+      <label style="display:flex; align-items:center; cursor:pointer;">
+        <input type="checkbox" id="excludeSolved" style="width:auto; margin:0 8px 0 0; transform: scale(1.2);">
+        <span style="font-size:15px; color:#374151; font-weight:bold;">안 푼 문제만 보기 (정답 맞춘 문제 제외)</span>
+      </label>
+    </div>
+
+    <div class="form-group">
+      <label for="countInput">랜덤 문제 개수</label>
+      <input id="countInput" type="number" inputmode="numeric" min="1" step="1" placeholder="예: 10 (비워 두면 5)">
+    </div>
+
+    <div class="stack-gap">
+      <button id="btnStartWithOptions" type="button">문제 시작</button>
+    </div>
+      </div>
+
+    <div id="spPickBox" class="sp-pick" style="display:none;">
+      <div class="sp-tools">
+        <div class="sp-status" id="spStatus">
+          <button type="button" data-s="all" class="on">전체</button>
+          <button type="button" data-s="new">안 푼 문제</button>
+          <button type="button" data-s="wrong">틀린 문제</button>
+          <button type="button" data-s="done">맞힌 문제</button>
+        </div>
+        <input type="search" id="spSearch" placeholder="🔍 번호·연도·유형 검색" autocomplete="off">
+        <select id="spSort" aria-label="정렬">
+          <option value="source">출처 순</option>
+          <option value="diffAsc">쉬운 순</option>
+          <option value="diffDesc">어려운 순</option>
+          <option value="type">유형 순</option>
+        </select>
+      </div>
+      <div class="sp-summary" id="spSummary"></div>
+      <div class="sp-table-wrap">
+        <table class="sp-table">
+          <thead><tr>
+            <th class="c-chk"><input type="checkbox" id="spCheckAll" title="보이는 문항 모두 선택"></th>
+            <th class="c-src">출처</th><th class="c-num">번호</th><th class="c-type">유형</th><th class="c-diff">난이도</th><th class="c-stat">상태</th>
+          </tr></thead>
+          <tbody id="spList"></tbody>
+        </table>
+      </div>
+      <div class="sp-bar">
+        <span class="sp-sel">선택 <b id="spSelCount">0</b>개</span>
+        <span class="sp-rand"><input type="number" id="spRandN" min="1" max="100" value="10"><button type="button" class="sp-ghost" id="spRandom">개 랜덤 고르기</button></span>
+        <button type="button" class="sp-ghost" id="spClear">선택 해제</button>
+        <button type="button" class="sp-play" id="spPlay" disabled>선택한 문제 풀기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 오답노트 -->
+  <div class="panel wide" id="wrongPage">
+    <div class="wn-head"><h2>📕 오답노트</h2><span class="wn-head-hint">틀린 횟수는 과제마다 한 번씩 셉니다 · 마지막에 맞히면 '고침'</span></div>
+    <div id="wrongStatsWrap"></div>
+  </div>
+
+  <!-- 문제 풀이 화면 -->
+  <div class="panel" id="quizPage"></div>
+
+  <!-- 단어장 -->
+  <div class="panel" id="vocabPage">
+    <div class="vp-title-row">
+      <h2 style="margin:0;">단어장</h2>
+      <!-- 오늘 학습 요약 (vocabUpdateStats / vocabUpdateQuizStats가 채움) -->
+      <div id="vocabStats" class="vp-summary" style="display:none;">
+        <span>오늘 추가 <b id="todayAdded">0</b></span>
+        <span>오늘 외움 <b id="todayMemorized">0</b></span>
+        <span>오늘 시험 <b id="todayQuiz">0</b> (정답 <b id="todayCorrect">0</b>)</span>
+      </div>
+    </div>
+
+    <div id="adminVocabBar" style="display:none; background:#eff6ff; border:1px solid #dbeafe; padding:12px; border-radius:10px; margin:12px 0; align-items:center; gap:10px; flex-wrap:wrap;">
+      <label style="font-weight:bold; color:#1e40af;">조회 학생:</label>
+      <select id="adminVocabStudentSelect" style="width:180px; margin:0; padding:8px; font-size:14px; border-radius:6px; border:1px solid #cbd5e1;" onchange="onAdminVocabStudentChange(this.value)">
+        <option value="">학생 선택</option>
+      </select>
+      <span id="adminVocabInfo" style="font-size:13px; color:#475569; margin-left:auto;">학생을 선택하면 해당 학생의 단어장과 기록이 표시됩니다.</span>
+    </div>
+
+    <!-- 검색 · 단어 추가 · 보기 설정 (관리자 모드에서 학생 미선택 시 숨김 제어에 id 사용) -->
+    <div id="vocabAddWordSection" class="vp-controls" style="display:none;">
+      <div class="vp-toolbar">
+        <input type="text" id="vocabSearchInput" placeholder="🔍 단어 또는 뜻 검색" oninput="vocabOnSearchInput(this)" autocomplete="off">
+        <button type="button" id="btnVocabAdd" class="vp-btn vp-btn-primary">+ 단어 추가</button>
+        <button type="button" id="btnVocabStudy" class="vp-btn vp-btn-study">📝 시험</button>
+      </div>
+      <div class="vp-filters">
+        <div class="vp-tabs" id="vpTabs">
+          <button type="button" class="vp-btn vp-tab on" data-filter="all">전체 <span id="vpCntAll">0</span></button>
+          <button type="button" class="vp-btn vp-tab" data-filter="learning">외우는 중 <span id="vpCntLearning">0</span></button>
+          <button type="button" class="vp-btn vp-tab" data-filter="done">외운 단어 <span id="vpCntDone">0</span></button>
+        </div>
+        <div class="vp-opts">
+          <select id="vpSort" aria-label="정렬">
+            <option value="recent">최근 추가순</option>
+            <option value="old">오래된순</option>
+            <option value="abc">알파벳순</option>
+          </select>
+          <button type="button" class="vp-btn vp-toggle" data-hide="meaning">뜻 가리기</button>
+          <button type="button" class="vp-btn vp-toggle" data-hide="word">단어 가리기</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 단어 시험: 설정 → 문제 → 결과 (vocab.js의 '단어 시험' 부분) -->
+    <div id="vocabStudy" class="vt" style="display:none;"></div>
+
+    <div id="info"></div>
+    <div id="wordList" class="vw-list" style="margin-top:12px;"></div>
+    <div id="quiz" style="margin-top:12px;"></div>
+    <div id="score" style="margin-top:10px; font-weight:700;"></div>
+  </div>
+
+
+<div class="panel" id="assignmentPage">
+  <h2>📁 나의 과제</h2>
+  
+  <h3 style="margin-top:20px; border-bottom:2px solid #2b6cb0; padding-bottom:8px;">진행 중인 과제</h3>
+  <div id="assignmentList" class="stack-gap" style="min-height:50px;"></div>
+
+  <h3 style="margin-top:40px; border-bottom:2px solid #6b7280; padding-bottom:8px; color:#4b5563;">지난 과제 (다시 풀기)</h3>
+  <div id="completedAssignmentList" class="stack-gap" style="min-height:50px;"></div>
+</div>
+
+<div class="panel wide" id="weeklyMakerPage">
+  <div class="wk-head">
+    <h2>📅 주간평가 출제</h2>
+    <div class="wk-flow"><span>① 학생</span><span>② 범위</span><span>③ 자동 선택</span><span>④ 검토 · 배부</span></div>
+  </div>
+
+  <section class="wk-card wk-student">
+    <div class="wk-step"><b class="wk-num">1</b>학생 선택</div>
+    <div class="wk-student-row">
+      <select id="weeklyStudentSelect"><option value="">학생 선택</option></select>
+      <button type="button" class="wk-ghost" onclick="loadWeeklyStudentData()">↻ 다시 불러오기</button>
+      <span id="weeklyAnalysisStatus" class="wk-status">학생을 고르면 풀이 기록을 불러옵니다.</span>
+    </div>
+    <div class="wk-weak">
+      <div class="wk-weak-head">취약 유형 <span class="wk-hint">최근 35일 · 정답률 낮은 순 · ✓ 표시한 유형을 우선 출제</span></div>
+      <div id="weeklyWeakTypeChips" class="wk-weak-chips"><span class="wk-empty">학생을 고르면 표시됩니다.</span></div>
+    </div>
+  </section>
+
+  <div class="weekly-layout">
+    <aside class="wk-card wk-side">
+      <div class="wk-step"><b class="wk-num">2</b>출제 범위</div>
+      <p class="wk-hint" style="margin:0 0 8px;">학년 탭에서 연도·월을 고르십시오. 여러 학년을 섞어도 됩니다.</p>
+      <div id="weeklyFilterContainer"></div>
+
+      <div class="wk-step wk-step-gap"><b class="wk-num">3</b>난이도 · 자동 선택</div>
+      <div class="wk-level">
+        <span class="wk-level-label">중심 난이도</span>
+        <input type="range" id="weeklyLevelSlider" min="1" max="15" value="5" oninput="document.getElementById('weeklyLevelVal').innerText = this.value + '단계';">
+        <b id="weeklyLevelVal">5단계</b>
+      </div>
+      <p class="wk-hint">중심 난이도 ±2단계에서 2·4·8·4·2개, 모두 20문항을 고릅니다.</p>
+      <label class="wk-opt"><input type="checkbox" id="chkWkSkipRecent" checked> 최근 4주 안에 배부한 문항 빼기</label>
+      <button type="button" class="wk-auto-btn" onclick="runWeeklyAutoSelection()">⚡ 20문항 자동 선택</button>
+    </aside>
+
+    <section class="wk-card wk-main">
+      <div class="wk-toolbar">
+        <div class="wk-step" style="margin:0;"><b class="wk-num">4</b>검토 · 배부 <span class="wk-count"><b id="weeklySelectedCount">0</b> / 20</span></div>
+        <div class="wk-tools">
+          <label><input type="checkbox" id="chkWkOnlySelected" onchange="renderWeeklyTable()"> 선택한 것만</label>
+          <label><input type="checkbox" id="chkWkExcludeSolved" onchange="renderWeeklyTable()"> 안 푼 문제만</label>
+          <button type="button" class="wk-ghost" onclick="clearWeeklySelection()">선택 해제</button>
+        </div>
+      </div>
+      <div id="weeklySummary" class="wk-summary"></div>
+      <div class="weekly-table-wrap">
+        <table id="weeklyInvTable" class="wk-table">
+          <thead>
+            <tr>
+              <th class="c-chk"><input type="checkbox" id="weeklyCheckAll" title="보이는 문항 모두 선택"></th>
+              <th class="c-src" data-wsort="source">출처</th>
+              <th class="c-num" data-wsort="number">번호</th>
+              <th class="c-type" data-wsort="type">유형</th>
+              <th class="c-diff" data-wsort="difficulty">난이도</th>
+              <th class="c-stat" data-wsort="status">상태</th>
+              <th class="c-wrong" data-wsort="wrong">오답</th>
+              <th class="c-asg" data-wsort="assign">배부</th>
+            </tr>
+          </thead>
+          <tbody id="weeklyInvTbody">
+            <tr class="wk-msg"><td colspan="8">학생을 고르고 왼쪽에서 출제 범위를 정해 주십시오.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="weekly-submit-bar">
+        <input type="text" id="weeklyTitleInput" placeholder="시험 제목 (비워 두면 '이름 주간평가(Lv.N) - N월 N주차')">
+        <button type="button" id="btnSubmitWeeklyFinal">🖨️ 배부하고 인쇄</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="panel wide" id="adminMakerPage" style="padding: 0;">
+  <div class="maker-container">
+    
+    <!-- [좌측] 필터 사이드바 영역 -->
+    <div class="maker-sidebar" id="adminFilterArea">
+      <h2 style="font-size:18px; margin:0 0 20px 0; color:#111827;">🔍 문제 조건 설정</h2>
+      
+      <div style="margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #eee;">
+      <button onclick="refreshMasterIndex()" class="btn-ghost" 
+        style="width:100%; height:40px; font-size:18px; background:#1e40af; color:white; border-radius:6px; font-weight:bold; 
+         display: flex; justify-content: center; align-items: center;">🔄 문제 목록 인덱스 갱신</button>
+    </div>
+
+      <!-- 문제 필터 컨테이너 (사이드바 안쪽에 위치) -->
+      <div id="filterContainer">
+          
+          <div id="adminInvFilterContainer"></div>
+
+          <div class="inv-label" style="margin-top:20px; border-top:1px solid #eee; padding-top:10px; display:flex; align-items:center; gap:6px;">
+            난이도
+            <button type="button" onclick="showDifficultyGuide()" style="background:#e5e7eb; color:#4b5563; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; font-weight:bold; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0;">?</button>
+          </div>
+          <div id="invDiffChips" class="chip-grid"></div>
+          
+          <div class="inv-label" style="margin-top:20px; border-top:1px solid #eee; padding-top:10px;">문제 유형 (공통)</div>
+          <div id="invTypeChips" class="chip-grid"></div>
+      </div>
+    </div>
+
+    <div class="maker-content">
+      
+<!-- [상단 고정] 대상 학생 및 검색 필터 -->
+    <div class="maker-header">
+        <div class="header-row">
+            <label style="font-weight:bold; font-size:14px; white-space:nowrap;">대상 학생:</label>
+            <div id="targetStudentDisplay" style="display:flex; align-items:center; gap:5px;">
+                <select id="targetStudentSelect" style="margin:0; width:140px; padding:6px; font-size:14px; border:1px solid #d1d5db; border-radius:6px;">
+                    <option value="">학생 선택</option>
+                </select>
+                <span id="multiStudentHeaderInfo" style="display:none; font-size:13px; color:#2b6cb0; font-weight:bold; cursor:pointer; text-decoration:underline;"></span>
+            </div>
+            <button id="btnLoadInventory" class="btn-primary" style="width:auto; padding:6px 12px; font-size:13px;">불러오기</button>
+            <button id="btnToggleRecentAsgn" onclick="toggleRecentAssignmentsPanel()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #059669; color:#059669;">최근 과제</button>
+            <button onclick="openStudentSelectModal()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #2b6cb0; color:#2b6cb0;">중복출제</button>
+            <span id="multiActiveIndicator" style="display:none; color:#059669; font-weight:bold; font-size:13px; margin-left:8px;">중복출제 활성화</span>
+        </div>
+        <!-- 최근 30일 취약 유형 · 난이도 (불러오기 후 표시, 누르면 왼쪽 필터에 적용) -->
+        <div id="makerInsight" class="mk-insight" style="display:none;"></div>
+        <div class="header-row" style="background:#f9fafb; padding:8px; border-radius:8px;">
+            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap;"><input type="checkbox" id="chkInvExcludeSolved" onchange="renderInventoryTable()" style="margin-right:4px;"> 안 푼 문제만</label>
+            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; margin-left:10px;"><input type="checkbox" id="chkExcludeDescriptive" onchange="renderInventoryTable()" style="margin-right:4px;"> 서술형 제외</label>
+            <span style="font-size:15px; margin-left:10px;">오답:</span>
+            <input type="number" id="invMinWrongCount" placeholder="0" style="width:80px; margin:0; padding:4px;" oninput="renderInventoryTable()">
+            <span style="font-size:15px; margin-left:10px;">번호검색:</span>
+            <input type="text" id="invNumberSearch" placeholder="예: 21" style="width:160px; margin:0; padding:4px;" oninput="renderInventoryTable()">
+            <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+                <input type="number" id="invRandomCount" value="10" style="width:80px; margin:0; padding:4px; text-align:center;">
+                <button id="btnInvRandom" class="btn-ghost" style="width:auto; padding:6px 10px; font-size:15px;">랜덤선택</button>
+                <button id="btnAddToCart" class="btn-primary" style="width:auto; padding:6px 15px; font-size:15px; background:#059669;" onclick="addSelectedToCart()">바구니 담기 (<span id="invSelectedCount">0</span>)</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- [중단 스크롤] 목록 -->
+    <div class="maker-body">
+    <!-- 1. 문제 목록 섹션 (좌측 문제목록 + 우측 최근 과제 분할) -->
+    <div id="inventorySection" style="display:flex; height:100%; overflow:hidden;">
+        <div class="inv-table-wrap" style="flex:1; height:100%; overflow-y:auto; min-width:0;">
+            <table id="invTable" style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead>
+                    <tr>
+                        <th style="padding:10px; width:40px; text-align:center; border-bottom:1px solid #ddd;"><input type="checkbox" id="invCheckAll"></th>
+                        <th onclick="sortInventory('status')" style="cursor:pointer; width:60px;">상태 <span id="sort_status"></span></th>
+                        <th onclick="sortInventory('lastTs')" style="cursor:pointer; width:90px;">최근 풀이 <span id="sort_lastTs"></span></th>
+                        <th onclick="sortInventory('assign')" style="cursor:pointer; width:50px;">배부 <span id="sort_assign"></span></th>
+                        <th onclick="sortInventory('wrong')" style="cursor:pointer; width:50px;">오답 <span id="sort_wrong"></span></th>
+                        <th onclick="sortInventory('source')" style="cursor:pointer;">출처/정보 <span id="sort_source"></span></th>
+                        <th onclick="sortInventory('type')" style="cursor:pointer; width:100px;">유형 <span id="sort_type"></span></th>
+                        <th onclick="sortInventory('difficulty')" style="cursor:pointer; width:50px;">난이도 <span id="sort_difficulty"></span></th>
+                        <th onclick="sortInventory('number')" style="cursor:pointer; width:80px;">번호 <span id="sort_number"></span></th>
+                    </tr>
+                </thead>
+                <tbody id="invTbody">
+                    <tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">학생을 선택하고 [불러오기]를 눌러 주십시오.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- [신규] 우측 최근 5회차 과제 사이드 패널 -->
+        <div id="recentAssignmentsPanel" class="recent-asgn-panel" style="display:none;">
+            <div class="recent-asgn-header">
+                <span id="recentAsgnTitle" style="font-weight:bold; font-size:14px; color:#065f46;">📋 최근 5회차 과제</span>
+                <div style="display:flex; gap:6px; align-items:center;">
+                    <button type="button" onclick="loadRecentAssignmentsForStudent(true)" style="width:auto; padding:4px 8px; font-size:11px; background:#fff; color:#059669; border:1px solid #059669; border-radius:4px; cursor:pointer;">새로고침</button>
+                    <button type="button" onclick="toggleRecentAssignmentsPanel(false)" style="width:auto; background:none; border:none; font-size:20px; color:#6b7280; cursor:pointer; padding:0 4px; line-height:1;">&times;</button>
+                </div>
+            </div>
+            <div id="recentAssignmentsBody" class="recent-asgn-body">
+                <div style="padding:30px; text-align:center; color:#6b7280; font-size:13px;">학생을 선택하고 불러오기를 진행해 주십시오.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 2. [추가] 배부 기록 섹션 (여기가 없어서 사라졌던 것입니다) -->
+    <div id="adminHistoryView" style="display:none; padding:20px; flex-direction:column; gap:15px; width:100%; box-sizing:border-box;">
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#f9fafb; padding:12px; border-radius:8px; border:1px solid #e5e7eb;">
+            <input type="text" id="historySearchName" placeholder="학생 이름 검색" oninput="renderHistoryUI()" style="width:180px; margin:0; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+            <button onclick="loadAdminHistory()" class="btn-small" style="background:#2b6cb0; height:36px;">조회 새로고침</button>
+            <div style="display:flex; gap:12px; margin-left:10px;">
+                <label style="font-size:13px; font-weight:bold; cursor:pointer;"><input type="checkbox" id="chkLoadAll" style="margin-right:4px;"> 전부 불러오기</label>
+                <label style="font-size:13px; font-weight:bold; cursor:pointer;"><input type="checkbox" id="chkOnlyWeekly" onchange="renderHistoryUI()" style="margin-right:4px;"> 주간평가만</label>
+                <label style="font-size:13px; font-weight:bold; cursor:pointer;"><input type="checkbox" id="chkOnlyInProgress" onchange="renderHistoryUI()" style="margin-right:4px;"> 진행 중</label>
+                <label style="font-size:13px; font-weight:bold; cursor:pointer;"><input type="checkbox" id="chkOnlyUnfinished" onchange="renderHistoryUI()" style="margin-right:4px;"> 미완료</label>
+            </div>
+        </div>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; background:#fff; border:1px solid #e5e7eb;">
+            <thead style="background:#f3f4f6; border-bottom:2px solid #d1d5db;">
+                <tr>
+                    <th style="padding:12px; width:100px;">날짜</th>
+                    <th style="padding:12px; width:100px;">학생</th>
+                    <th style="padding:12px;">제목</th>
+                    <th style="padding:12px; width:60px;">문항수</th>
+                    <th style="padding:12px; width:120px;">상태</th>
+                    <th style="padding:12px; width:300px;">관리</th>
+                </tr>
+            </thead>
+            <tbody id="historyTbody">
+                <!-- 스크립트로 채워짐 -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+    <!-- [개편] 하단 고정 바구니 및 출제 영역 -->
+<div class="maker-footer" id="createFooter" style="position: relative; display: 
+flex; align-items: center; justify-content: space-between; padding: 15px 25px; background: #f8fafc;
+border-top: 2px solid #2b6cb0;">
+    
+    <!-- 바구니 상세 목록 패널 (위로 열리는 부분) -->
+    <div id="cartListPanel" style="display:flex; flex-direction:column; overflow:hidden;">
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; border-bottom:1px solid #2b6cb0; background:#fff; padding:8px 12px; box-sizing:border-box;">
+            <span style="font-weight:bold; color:#1e40af; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">🛒 바구니 상세 목록 <span id="cartDiffDist" class="cart-diff-dist"></span></span>
+            <div style="display:flex; align-items:center; gap:10px;">
+                <label style="font-size:13px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; color:#374151;"><input type="checkbox" id="chkCartOrder" style="margin-right:4px;"> 현재 보이는 순서대로 출제</label>
+                <select id="cartSortSelect" onchange="sortCartList(this.value)" style="margin:0; padding:4px 8px; font-size:13px; border-radius:6px; border:1px solid #d1d5db;">
+                    <option value="">정렬 방식 선택</option>
+                    <option value="number_asc">번호 오름차순</option>
+                    <option value="number_desc">번호 내림차순</option>
+                    <option value="type_asc">유형 가나다순</option>
+                    <option value="type_desc">유형 역순</option>
+                    <option value="difficulty_asc">난이도 낮은 순</option>
+                    <option value="difficulty_desc">난이도 높은 순</option>
+                    <option value="source_asc">출처 오름차순</option>
+                    <option value="source_desc">출처 내림차순</option>
+                    <option value="wrong_desc">오답 많은 순</option>
+                    <option value="wrong_asc">오답 적은 순</option>
+                </select>
+                <button onclick="toggleCartList()" style="background:none; border:none; font-size:24px; cursor:pointer; color:#6b7280; line-height:1; padding:0;">&times;</button>
+            </div>
+        </div>
+        <div style="flex:1; overflow:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;"><tbody id="cartTbody"></tbody></table></div>
+    </div>
+
+    <!-- [왼쪽 영역] 바구니 정보 및 비우기 버튼 -->
+    <div style="display:flex; align-items:center; gap:12px;">
+        <div onclick="toggleCartList()" style="cursor:pointer; background:#fff; padding:8px 16px; border:2px solid #2b6cb0; border-radius:10px; display:flex; align-items:center; gap:8px; height: 46px; box-sizing: border-box;">
+            <span style="font-size:18px;">🛒</span>
+            <span style="font-size:14px; font-weight:bold; color:#1e40af;">바구니: <span id="cartCountDisplay" style="color:#dc2626;">0</span>개</span>
+            <span id="cartDiffSummary" class="cart-diff-sum"></span>
+            <span id="cartToggleIcon" style="font-size:12px; color:#2b6cb0;">▲</span>
+        </div>
+        <button onclick="clearCart()" class="btn-ghost" style="width:auto; padding:0 15px; height:46px; font-size:13px; background:#fff; border:1px solid #d1d5db; border-radius:10px; color:#4b5563; font-weight:bold; display:flex; align-items:center; gap:5px;">
+            <span style="font-size:16px;">🗑️</span> 바구니 비우기
+        </button>
+        
+        <!-- 중복출제 알림 (학생 추가 시 표시) -->
+        <div id="multiStudentInfo" style="display:none; align-items:center; gap:8px; background:#eff6ff; padding:0 15px; height:46px; border-radius:10px; border:1px solid #2b6cb0;">
+            <span style="font-size:13px; color:#1e40af; font-weight:bold;">외 <span id="extraCount">0</span>명 중복설정</span>
+            <button onclick="clearMultiStudent()" style="background:none; border:none; color:#dc2626; font-size:11px; cursor:pointer; text-decoration:underline; padding:0;">취소</button>
+        </div>
+    </div>
+
+    <!-- [오른쪽 영역] 제목 입력 및 최종 출제 -->
+    <div style="display:flex; align-items:center; gap:10px; flex: 1; justify-content: flex-end;">
+        <!-- 제목 입력창: 너비를 500px로 대폭 확장 -->
+        <input type="text" id="customTitleInput" placeholder="과제 제목을 입력하십시오 (예: 3월 1주차 주간평가)" 
+               style="width: 500px; margin:0; height:46px; border:2px solid #d1d5db; border-radius:10px; padding: 0 15px; font-weight:bold; font-size:15px; transition: border-color 0.2s;">
+        
+        <button id="btnPrintChecked" class="btn-primary" 
+                style="width:200px; height:46px; font-weight:bold; font-size:15px; border-radius:10px; background:#2b6cb0; border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">
+            🖨️ 과제 출제 및 인쇄
+        </button>
+    </div>
+</div>
+
+    </div>
+  </div>
+</div>
+
+
+
+</div>
+  </div>
+</div>
+
+  <!-- ✅ 하단 고정 채점 버튼(풀이 화면에서만 표시) -->
+<div class="footer-bar" id="globalFooter">
+  <div class="nav-btn-group">
+    <button class="btn btn-ghost" id="btnPrevQ" type="button">이전</button>
+    <button class="btn btn-primary" id="btnNextQ" type="button">다음</button>
+    <button class="btn btn-primary" id="btnGradeAll" type="button" style="display:none;">채점하기</button>
+  </div>
+</div>
+
+<!-- ✅ 우측 단어장 팝업(FAB + Drawer) -->
+<button id="btnVocabDrawerFab" type="button" class="fab-vocab" title="단어장 열기">단어</button>
+<div id="drawerOverlay" class="drawer-overlay"></div>
+<aside id="vocabDrawer" class="drawer vocab-dock" aria-label="미니 단어장">
+  <div class="drawer-head">
+    <div style="font-weight:800;">📖 미니 단어장</div>
+    <button id="btnVocabDrawerClose" type="button" class="drawer-close">닫기</button>
+  </div>
+
+  <div class="drawer-body">
+    <div class="vd-tip">지문에서 단어를 <b>더블클릭</b>(휴대폰은 <b>길게 누르기</b>)하면 바로 저장할 수 있습니다.</div>
+
+    <div class="drawer-section">
+      <div class="drawer-label">단어 추가</div>
+      <div class="drawer-row">
+        <input id="drawerWord" type="text" placeholder="영어 단어" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <button id="btnDrawerDict" type="button" class="vd-btn vd-btn-ghost">사전</button>
+      </div>
+      <div id="drawerWordStatus" class="vd-status"></div>
+      <div class="drawer-row">
+        <input id="drawerMeaning" type="text" placeholder="뜻 (추천 뜻을 누르거나 직접 입력)" autocomplete="off">
+        <button id="btnDrawerSave" type="button" class="vd-btn vd-btn-primary">저장</button>
+      </div>
+      <div id="drawerSaveStatus" class="drawer-muted"></div>
+
+      <div id="drawerDictWrap" class="vd-dict" style="display:none;">
+        <div class="vd-dict-head">
+          <span id="drawerDictTitle">네이버 사전</span>
+          <button id="btnDrawerDictClose" type="button" class="vd-btn vd-btn-ghost">접기</button>
+        </div>
+        <iframe id="drawerDictFrame" title="네이버 영어사전"></iframe>
+      </div>
+    </div>
+
+    <div class="drawer-section">
+      <div class="drawer-label">이번에 저장한 단어 <span id="drawerSessionCount" class="vd-count">0</span></div>
+      <div id="drawerSessionList" class="vd-list"></div>
+    </div>
+  </div>
+</aside>
+<aside id="questionMapDrawer" class="drawer">
+  <div class="drawer-head">
+    <div style="font-weight:800;">문제 목록 이동</div>
+    <button id="btnCloseMap" type="button" class="drawer-close">닫기</button>
+  </div>
+  <div class="drawer-body">
+    <div style="padding:12px; font-size:14px; color:#666;">번호를 누르면 해당 문제로 이동합니다.</div>
+    <div id="qMapGrid" class="map-grid"></div>
+  </div>
+</aside>
+
+<!-- 문제은행 편집기 (관리자): 내용은 qbank.js가 처음 열 때 만듭니다 -->
+<div class="panel wide" id="qbankPage"></div>
+
+<aside id="navDrawer" class="drawer left">
+  <div class="drawer-head">
+    <div style="font-weight:800;">메뉴</div>
+    <button id="btnCloseNav" type="button" class="drawer-close">닫기</button>
+  </div>
+  <div class="drawer-body">
+    <div class="drawer-list">
+      <div class="drawer-item" onclick="routeTo('assignment'); closeNavDrawer();">📁 과제</div>
+      <div class="drawer-item" onclick="routeTo('vocab'); closeNavDrawer();">📖 단어장</div>
+      <div class="drawer-item" onclick="routeTo('quiz'); closeNavDrawer();">📝 온라인 문제</div>
+      <div class="drawer-item" onclick="routeTo('wrong'); closeNavDrawer();">📕 오답노트</div>
+      <div class="drawer-item" onclick="closeNavDrawer(); NP.open('points');">⭐ 포인트</div>
+      <div class="drawer-item" onclick="closeNavDrawer(); NP.open('notices');">🔔 알림</div>
+    </div>
+  </div>
+</aside>
+
+<div id="adminDetailModal" class="loading-overlay" style="background: rgba(0,0,0,0.5); z-index: 11000;">
+  <div style="background:#fff; width:95%; max-width:900px; max-height:85vh; border-radius:12px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 25px rgba(0,0,0,0.2); margin: 20px;">
+  <div style="padding:16px; border-bottom:1px solid #eee; display:grid; grid-template-columns:1fr auto; gap:10px; align-items:center; background:#f9fafb;">
+          <h3 id="adminDetailTitle" style="margin:0; font-size:18px; color:#111827; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;">과제 상세 결과</h3>
+          <button onclick="closeAdminDetail()" style="border:none; background:none; font-size:24px; cursor:pointer; color:#6b7280; padding:0; line-height:1;">&times;</button>
+    </div>
+    <div id="adminDetailBody" style="padding:0; overflow-y:auto; flex:1;"></div>
+    <div style="padding:12px; border-top:1px solid #eee; text-align:right; background:#f9fafb;">
+      <button onclick="closeAdminDetail()" class="btn-small" style="background:#6b7280;">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- [추가] 학생 다중 선택 모달 -->
+<div id="adminStudentSelectModal" class="loading-overlay" style="background: rgba(0,0,0,0.5); z-index: 12000;">
+  <div style="background:#fff; width:90%; max-width:400px; border-radius:12px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
+    <div style="padding:16px; border-bottom:1px solid #eee; background:#f9fafb; display:flex; justify-content:space-between; align-items:center;">
+      <h3 style="margin:0; font-size:17px;">출제 대상 학생 선택</h3>
+      <button onclick="closeStudentSelectModal()" style="border:none; background:none; font-size:20px; cursor:pointer;">&times;</button>
+    </div>
+    <div id="studentSelectList" style="padding:15px; max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
+    </div>
+    <div style="padding:12px; border-top:1px solid #eee; display:flex; gap:8px;">
+      <button onclick="applyMultiStudentSelection()" class="btn-primary" style="flex:1;">선택 완료</button>
+      <button onclick="closeStudentSelectModal()" class="btn-ghost" style="width:80px;">취소</button>
+    </div>
+  </div>
+</div>
+
+
+
+
+<div id="loadingOverlay" class="loading-overlay">
+  <div class="spinner"></div>
+  <div class="loading-text">
+    문제를 불러오는 중입니다...<br>
+    <span style="font-size:14px; font-weight:normal; color:#6b7280;">잠시만 기다려 주십시오.</span>
+  </div>
+</div>
+
+  <script src="qrcode.js?v=20261113a"></script>
+  <script src="api-utils.js?v=20261113a"></script>
+  <script src="notice-points.js?v=20261113a"></script>
+  <script src="vocab.js?v=20261113a"></script>
+  <script src="student-quiz.js?v=20261113a"></script>
+  <script src="ink.js?v=20261113a"></script>
+  <script src="admin-maker.js?v=20261113a"></script>
+  <script src="qbank.js?v=20261113a"></script>
+  <script src="print-report.js?v=20261113a"></script>
+  <script src="app-core.js?v=20261113a"></script>
+</body>
+</html>

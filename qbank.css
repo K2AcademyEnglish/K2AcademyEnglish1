@@ -1,0 +1,250 @@
+/* ===================== 문제은행 편집기 (관리자) ===================== */
+#qbankPage { font-family: var(--font-base); }
+#qbankPage .qb-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+#qbankPage .qb-title { margin: 0; font-size: 20px; color: #1e3a8a; }
+#qbankPage .qb-top-hint { font-size: 12px; color: #64748b; }
+#qbankPage .qb-busy { font-size: 12px; font-weight: 700; color: #1d4ed8; background: #dbeafe; padding: 3px 10px; border-radius: 999px; }
+#qbankPage .qb-muted { color: #64748b; font-size: 12px; font-weight: 400; }
+#qbankPage .qb-empty { color: #94a3b8; font-size: 13px; text-align: center; padding: 28px 10px; }
+
+#qbankPage .qb-layout { display: grid; grid-template-columns: 270px minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+#qbankPage .qb-side, #qbankPage .qb-main, #qbankPage .qb-prev {
+  background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; min-width: 0; box-sizing: border-box;
+}
+#qbankPage .qb-side { padding: 10px; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 76px; max-height: calc(100vh - 96px); }
+#qbankPage .qb-main { padding: 12px 14px 18px; }
+#qbankPage .qb-prev { position: sticky; top: 76px; max-height: calc(100vh - 96px); display: flex; flex-direction: column; overflow: hidden; }
+
+/* 버튼 · 입력칸: 전역 button/input 규칙(넓이 100% 등)을 덮어씁니다 */
+html body #qbankPage button.qb-btn {
+  width: auto !important; height: 32px !important; margin: 0 !important; padding: 0 10px !important;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px; white-space: nowrap;
+  background: #fff !important; color: #334155 !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important;
+  font-size: 13px !important; font-weight: 600; line-height: 1; cursor: pointer; box-shadow: none !important;
+}
+html body #qbankPage button.qb-btn:hover:not(:disabled) { border-color: #2b6cb0 !important; color: #1e40af !important; }
+html body #qbankPage button.qb-btn.qb-btn-primary { background: #2b6cb0 !important; color: #fff !important; border-color: #2b6cb0 !important; }
+html body #qbankPage button.qb-btn.qb-btn-primary:hover:not(:disabled) { background: #1e40af !important; color: #fff !important; }
+html body #qbankPage button.qb-btn:disabled { opacity: .45; cursor: default; }
+html body #qbankPage button.qb-btn.qb-btn-sm { height: 26px !important; padding: 0 8px !important; font-size: 12px !important; }
+#qbankPage input[type="text"], #qbankPage input[type="number"], #qbankPage input[type="search"], #qbankPage select, #qbankPage textarea {
+  width: 100% !important; box-sizing: border-box; margin: 0 !important; padding: 6px 8px !important;
+  border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px !important; font-family: inherit; color: #111827; background: #fff;
+}
+#qbankPage input[type="text"], #qbankPage input[type="number"], #qbankPage input[type="search"], #qbankPage select { height: 34px !important; }
+#qbankPage textarea { resize: vertical; min-height: 34px; line-height: 1.55; font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+#qbankPage input:focus, #qbankPage textarea:focus, #qbankPage select:focus { outline: 2px solid #93c5fd; outline-offset: 0; border-color: #2b6cb0; }
+#qbankPage .qb-check { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: #334155; cursor: pointer; white-space: nowrap; }
+#qbankPage .qb-check input { width: auto !important; margin: 0 !important; }
+
+/* 왼쪽: 시트 · 문항 목록 */
+#qbankPage .qb-side-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+#qbankPage .qb-side-row select { flex: 1 1 0; min-width: 0; }
+#qbankPage .qb-list { flex: 1 1 auto; overflow-y: auto; min-height: 120px; display: flex; flex-direction: column; gap: 4px; padding-right: 2px; }
+html body #qbankPage button.qb-item {
+  display: flex; flex-direction: column; align-items: stretch; gap: 3px; text-align: left;
+  width: 100% !important; height: auto !important; margin: 0 !important; padding: 7px 9px !important;
+  background: #f8fafc !important; color: #111827 !important; border: 1px solid #e2e8f0 !important; border-radius: 8px !important;
+  font-size: 13px !important; font-weight: 400; line-height: 1.35; cursor: pointer; box-shadow: none !important;
+}
+html body #qbankPage button.qb-item:hover { border-color: #93c5fd !important; }
+html body #qbankPage button.qb-item.active { background: #eff6ff !important; border-color: #2b6cb0 !important; box-shadow: inset 3px 0 0 #2b6cb0 !important; }
+html body #qbankPage button.qb-item.is-hidden { opacity: .6; }
+#qbankPage .qb-item-top { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+#qbankPage .qb-item-type { font-size: 11px; color: #1e40af; background: #dbeafe; padding: 1px 6px; border-radius: 999px; }
+#qbankPage .qb-item-diff { font-size: 11px; color: #64748b; }
+#qbankPage .qb-item-stem { font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#qbankPage .qb-chip { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: #f1f5f9; color: #475569; white-space: nowrap; }
+#qbankPage .qb-chip-new { background: #dcfce7; color: #166534; }
+#qbankPage .qb-chip-dirty { background: #fef3c7; color: #92400e; }
+#qbankPage .qb-chip-hide { background: #e5e7eb; color: #374151; }
+#qbankPage .qb-chip-off { background: #fee2e2; color: #991b1b; }
+#qbankPage .qb-chip-link { background: #ede9fe; color: #5b21b6; }
+#qbankPage .qb-savebar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+
+/* 가운데: 입력칸 */
+#qbankPage .qb-form-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+#qbankPage .qb-form-title { font-size: 17px; font-weight: 800; color: #111827; }
+#qbankPage .qb-where { margin-top: 2px; }
+#qbankPage .qb-form-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+#qbankPage .qb-warn { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; border-radius: 8px; padding: 7px 10px; font-size: 12px; line-height: 1.6; margin-bottom: 8px; }
+#qbankPage .qb-note { background: #f1f5f9; border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #334155; margin: 6px 0; }
+#qbankPage .qb-toolbar {
+  position: sticky; top: 64px; z-index: 6; display: flex; flex-wrap: wrap; gap: 3px; align-items: center;
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 5px; margin-bottom: 8px;
+}
+html body #qbankPage button.qb-tb {
+  width: auto !important; height: 28px !important; min-width: 28px; margin: 0 !important; padding: 0 7px !important;
+  background: #fff !important; color: #1f2937 !important; border: 1px solid #d1d5db !important; border-radius: 6px !important;
+  font-size: 12px !important; font-weight: 600; line-height: 1; cursor: pointer; box-shadow: none !important;
+}
+html body #qbankPage button.qb-tb:hover { border-color: #2b6cb0 !important; background: #eff6ff !important; }
+#qbankPage .qb-tb-sep { width: 1px; height: 18px; background: #d1d5db; margin: 0 3px; }
+#qbankPage .qb-toolpop { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; background: #fff; border: 1px dashed #93c5fd; border-radius: 8px; padding: 6px; margin: -4px 0 8px; }
+#qbankPage .qb-toolpop[hidden] { display: none; }
+#qbankPage .qb-toolpop input { flex: 1 1 260px; }
+#qbankPage .qb-field { margin-bottom: 8px; border-radius: 8px; }
+#qbankPage .qb-field.changed > input, #qbankPage .qb-field.changed > textarea, #qbankPage .qb-field.changed .qb-ans-row input { background: #fffbeb; border-color: #f59e0b; }
+#qbankPage .qb-label { display: block; font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 3px; }
+#qbankPage .qb-grid4 { display: grid; grid-template-columns: 1.3fr 1.6fr 1fr 0.7fr; gap: 8px; }
+#qbankPage .qb-grid4 .qb-field { margin-bottom: 8px; }
+#qbankPage .qb-opts { display: grid; grid-template-columns: 1fr; gap: 0; }
+#qbankPage .qb-opts .qb-field { display: grid; grid-template-columns: 22px minmax(0, 1fr); align-items: start; gap: 6px; margin-bottom: 5px; }
+#qbankPage .qb-opts .qb-label { margin: 7px 0 0; font-size: 14px; color: #1e40af; }
+#qbankPage .qb-ans-row { display: flex; gap: 4px; align-items: center; }
+#qbankPage .qb-ans-row input { flex: 1 1 auto; }
+html body #qbankPage button.qb-ans {
+  width: 34px !important; height: 32px !important; margin: 0 !important; padding: 0 !important; flex: 0 0 auto;
+  background: #fff !important; color: #334155 !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important;
+  font-size: 16px !important; line-height: 1; cursor: pointer; box-shadow: none !important;
+}
+html body #qbankPage button.qb-ans.on { background: #2b6cb0 !important; color: #fff !important; border-color: #2b6cb0 !important; }
+#qbankPage .qb-linked .qb-link-box { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; background: #faf5ff; border: 1px dashed #c4b5fd; border-radius: 8px; padding: 6px 8px; font-size: 12px; }
+#qbankPage .qb-linked code { font-size: 12px; color: #6d28d9; }
+#qbankPage .qb-link-prev { flex: 1 1 100%; color: #64748b; }
+html body #qbankPage button.qb-addbox { margin: 0 0 10px !important; }
+#qbankPage .qb-help { font-size: 12px; color: #475569; margin-top: 10px; line-height: 1.8; }
+#qbankPage .qb-help summary { cursor: pointer; font-weight: 700; color: #1e40af; }
+#qbankPage .qb-help code { background: #f1f5f9; padding: 0 4px; border-radius: 4px; }
+
+/* 오른쪽: 미리보기 */
+#qbankPage .qb-prev-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; flex-wrap: wrap; }
+#qbankPage .qb-prev-head .qb-check { margin-left: auto; }
+#qbankPage .qb-prev-body { padding: 12px; overflow-y: auto; }
+#qbankPage .qb-prev-meta { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+#qbankPage .qb-prev-box { margin-top: 6px; }
+#qbankPage .qb-prev-box .op-opt { cursor: default; }
+#qbankPage .qb-prev-box .op-opt.qb-correct { background: #ecfdf5; border-color: #10b981; }
+#qbankPage .qb-prev-box .op-opt.qb-correct .op-sym { color: #047857; font-weight: 800; }
+#qbankPage .qb-prev-ans { margin-top: 12px; font-size: 14px; color: #047857; }
+#qbankPage .qb-prev-exp { margin-top: 8px; font-size: 13px; color: #334155; background: #f8fafc; border-radius: 8px; padding: 8px 10px; line-height: 1.6; }
+#qbankPage .qb-prev-exp b { display: block; margin-bottom: 3px; color: #475569; }
+
+/* 미리보기 방식 고르기 */
+#qbankPage .qb-seg { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
+html body #qbankPage button.qb-seg-btn {
+  width: auto !important; height: 28px !important; margin: 0 !important; padding: 0 10px !important; border: 0 !important; border-radius: 0 !important;
+  background: #fff !important; color: #475569 !important; font-size: 12px !important; font-weight: 700; cursor: pointer; box-shadow: none !important;
+}
+html body #qbankPage button.qb-seg-btn.active { background: #1e40af !important; color: #fff !important; }
+
+/* 인쇄 크기 미리보기: 과제 출제 인쇄와 같은 값 (A4 좌우 여백 15mm · 2단 · 단 간격 10mm → 한 단 85mm) */
+#qbankPage .qb-paper-note { font-size: 11px; color: #64748b; margin: 2px 0 6px; }
+#qbankPage .qb-paper { background: #e5e7eb; padding: 10px; border-radius: 8px; overflow-x: auto; }
+#qbankPage .qb-print {
+  width: 85mm; margin: 0 auto; background: #fff; padding: 5mm; box-sizing: content-box; box-shadow: 0 1px 4px rgba(0,0,0,.18);
+  color: #000; font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
+}
+#qbankPage .qb-print .exam-q-block { margin: 0; }
+#qbankPage .qb-print .exam-q-id { display: flex; justify-content: space-between; font-size: 8px; color: #666; margin-bottom: 2px; }
+#qbankPage .qb-print .exam-q-range-title { font-family: "Malgun Gothic", sans-serif; font-weight: 800; font-size: 14px; margin-bottom: 10px; }
+#qbankPage .qb-print .exam-q-title-row { display: flex; align-items: baseline; min-height: 24px; margin-bottom: 2px; }
+#qbankPage .qb-print .exam-q-num { margin-right: 10px; flex-shrink: 0; font-family: "Malgun Gothic", sans-serif; font-weight: 800; font-size: 20px; }
+#qbankPage .qb-print .exam-q-text { font-family: "Malgun Gothic", sans-serif; font-size: 12px; line-height: 1.3; flex: 1; word-break: keep-all; overflow-wrap: break-word; }
+#qbankPage .qb-print .exam-passage, #qbankPage .qb-print .exam-q-box {
+  font-family: "Times New Roman", serif; font-size: 13px; line-height: 1.4; text-align: justify; box-sizing: border-box; width: 100%;
+}
+#qbankPage .qb-print .exam-passage { margin: 6px 0; padding: 6px; border: 1px solid #000; }
+#qbankPage .qb-print .exam-passage.boxed { border-color: #333; }
+#qbankPage .qb-print .exam-q-box { border: 1px solid #000; padding: 10px; margin: 10px 0; display: block; }
+#qbankPage .qb-print .exam-options { display: grid; gap: 4px 10px; margin-top: 8px; }
+#qbankPage .qb-print .exam-options.grid-5 { grid-template-columns: repeat(5, 1fr); }
+#qbankPage .qb-print .exam-options.grid-3 { grid-template-columns: repeat(3, 1fr); }
+#qbankPage .qb-print .exam-options.grid-2 { grid-template-columns: repeat(2, 1fr); }
+#qbankPage .qb-print .exam-options.grid-1 { grid-template-columns: 1fr; }
+#qbankPage .qb-print .exam-opt-row { display: flex; align-items: baseline; }
+#qbankPage .qb-print .exam-opt-num { font-weight: bold; margin-right: 5px; flex-shrink: 0; font-family: "Malgun Gothic", sans-serif; }
+#qbankPage .qb-print .exam-opt-text { font-size: 12px; font-family: "Times New Roman", serif; line-height: 1.2; word-break: keep-all; overflow-wrap: break-word; }
+#qbankPage .qb-print img { max-width: 100%; }
+#qbankPage .qb-print .qb-print-other { opacity: .45; }
+#qbankPage .qb-print .qb-print-cur { outline: 2px solid #93c5fd; outline-offset: 2px; border-radius: 2px; }
+#qbankPage .qb-pdf-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px; background: #eff6ff; border: 1px dashed #93c5fd; border-radius: 8px; }
+
+/* 창(모달) */
+#qbankPage .qb-modal { position: fixed; inset: 0; z-index: 11500; background: rgba(15, 23, 42, .5); display: flex; align-items: center; justify-content: center; padding: 16px; }
+#qbankPage .qb-modal[hidden] { display: none; }
+#qbankPage .qb-modal-box { background: #fff; border-radius: 12px; width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
+#qbankPage .qb-modal-box:has(.qb-paste) { width: min(1180px, 100%); }
+#qbankPage .qb-modal-box:has(.qb-key) { width: min(860px, 100%); }
+#qbankPage .qb-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; font-size: 16px; }
+html body #qbankPage button.qb-x { width: 32px !important; height: 32px !important; margin: 0 !important; padding: 0 !important; background: none !important; border: 0 !important; font-size: 22px !important; color: #64748b !important; cursor: pointer; box-shadow: none !important; }
+#qbankPage .qb-modal-body { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#qbankPage .qb-modal-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 16px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+#qbankPage .qb-mt { margin-top: 8px; }
+#qbankPage .qb-ns-frame { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; }
+#qbankPage .qb-ns-frame input[type="number"] { width: 70px !important; }
+#qbankPage .qb-paste { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+#qbankPage .qb-paste-in { display: flex; flex-direction: column; gap: 6px; }
+#qbankPage .qb-paste-in textarea { font-family: 'Consolas', 'D2Coding', monospace; font-size: 13px !important; }
+#qbankPage .qb-paste-out { max-height: 62vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+#qbankPage .qb-paste-sum { font-size: 13px; font-weight: 700; color: #1e3a8a; }
+#qbankPage .qb-pr { display: flex; gap: 8px; align-items: flex-start; border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 9px; font-size: 13px; cursor: pointer; }
+#qbankPage .qb-pr input { width: auto !important; margin: 3px 0 0 !important; }
+#qbankPage .qb-pr.has-warn { border-color: #fed7aa; background: #fffbf5; }
+#qbankPage .qb-pr-main { min-width: 0; line-height: 1.5; }
+#qbankPage .qb-pr-stem { color: #111827; }
+#qbankPage .qb-pr-warn { display: block; margin-top: 3px; color: #c2410c; font-size: 12px; }
+
+/* 좁은 화면: 미리보기를 아래로, 더 좁으면 한 줄로 */
+@media screen and (max-width: 1200px) {
+  #qbankPage .qb-layout { grid-template-columns: 250px minmax(0, 1fr); }
+  #qbankPage .qb-prev { grid-column: 2; position: static; max-height: none; }
+}
+@media screen and (max-width: 820px) {
+  #qbankPage .qb-layout { grid-template-columns: 1fr; }
+  #qbankPage .qb-side { position: static; max-height: none; }
+  #qbankPage .qb-list { max-height: 40vh; }
+  #qbankPage .qb-prev { grid-column: auto; }
+  #qbankPage .qb-grid4 { grid-template-columns: 1fr 1fr; }
+  #qbankPage .qb-toolbar { top: 56px; }
+  #qbankPage .qb-paste { grid-template-columns: 1fr; }
+}
+
+/* 해설지 가져오기 */
+#qbankPage .qb-key { display: flex; flex-direction: column; gap: 10px; }
+#qbankPage .qb-key-opts { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+#qbankPage .qb-key-opts .qb-label { margin: 0; }
+#qbankPage .qb-key-over { margin-left: auto; }
+#qbankPage .qb-key-out { max-height: 52vh; overflow: auto; border: 1px solid #e5e7eb; border-radius: 8px; }
+#qbankPage .qb-key-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+#qbankPage .qb-key-table th { position: sticky; top: 0; background: #f8fafc; text-align: left; padding: 6px 8px; border-bottom: 1px solid #e5e7eb; font-weight: 700; }
+#qbankPage .qb-key-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+#qbankPage .qb-key-table td:nth-child(1) { width: 26px; }
+#qbankPage .qb-key-table td:nth-child(2) { width: 90px; white-space: nowrap; }
+#qbankPage .qb-key-table td:nth-child(3) { width: 64px; font-size: 15px; }
+#qbankPage .qb-key-table tr.is-skip { opacity: .55; }
+#qbankPage .qb-key-table tr.has-warn td { background: #fff7ed; }
+#qbankPage .qb-key-snip { color: #334155; }
+@media (max-width: 640px) {
+  #qbankPage .qb-key-over { margin-left: 0; }
+  #qbankPage .qb-key-table td:nth-child(2) { width: auto; }
+}
+
+/* 난이도·정답 일괄 입력 */
+#qbankPage .qb-bulk { display: flex; flex-direction: column; gap: 10px; }
+#qbankPage .qb-bulk-opts { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+#qbankPage .qb-bulk-opts .qb-label { margin: 0; }
+#qbankPage .qb-bulk-opts select { flex: 1 1 200px; min-width: 0; }
+#qbankPage .qb-bulk textarea { font-family: Consolas, monospace; }
+#qbankPage .qb-modal-box:has(.qb-bulk) { width: min(640px, 100%); }
+
+/* 가져오기 (탭 하나로) */
+#qbankPage .qb-imp-tabs { display: flex; gap: 4px; padding: 8px 16px 0; border-bottom: 1px solid #e5e7eb; background: #f8fafc; }
+#qbankPage .qb-imp-tabs .qb-seg-btn { border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; padding: 8px 16px; background: transparent; font-weight: 700; color: #475569; cursor: pointer; margin-bottom: -1px; }
+#qbankPage .qb-imp-tabs .qb-seg-btn.active { background: #fff; border-color: #e5e7eb; color: #1d4ed8; }
+#qbankPage .qb-imp-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; overflow: hidden; }
+#qbankPage .qb-imp-pane[hidden] { display: none; }
+#qbankPage .qb-imp-pane > .qb-modal-body { flex: 1 1 auto; overflow: auto; }
+#qbankPage .qb-modal-box[data-tab] { width: min(860px, 100%); }
+#qbankPage .qb-modal-box[data-tab="q"] { width: min(1180px, 100%); }
+#qbankPage .qb-key-manual { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; }
+#qbankPage .qb-key-manual summary { cursor: pointer; font-weight: 700; color: #475569; }
+#qbankPage .qb-key-manual[open] summary { margin-bottom: 8px; }
+#qbankPage .qb-bulk-inner-foot { display: flex; justify-content: flex-end; }
+
+/* 출처 */
+#qbankPage .qb-srcbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; padding: 6px 8px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; }
+#qbankPage .qb-srcbar b { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#qbankPage .qb-ns-src { display: flex; gap: 6px; align-items: center; }
+#qbankPage .qb-ns-src input { flex: 1 1 auto; min-width: 0; }
+#qbankPage .qb-srcbar[hidden] { display: none; }
