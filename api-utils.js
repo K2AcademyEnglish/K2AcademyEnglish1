@@ -29,7 +29,10 @@ if (typeof google === 'undefined' || !google.script) {
           .then(res => res.json())
           .then(res => {
             if (res && res.ok) {
-              if (typeof successHandler === 'function') successHandler(res.data);
+              // 문항이 들어 있는 응답이면 img 폴더의 '문항ID.jpg'를 찾아 box1에 붙인 뒤 넘깁니다.
+              attachQuestionImages(res.data).then(() => {
+                if (typeof successHandler === 'function') successHandler(res.data);
+              });
             } else {
               const errMsg = (res && res.error) ? res.error : 'Server Error';
               if (typeof failureHandler === 'function') failureHandler(errMsg);
@@ -68,6 +71,77 @@ if (typeof google === 'undefined' || !google.script) {
       }
     }
   };
+}
+
+/* ===================== 문항 이미지 태그 <image> =====================
+ * 문제은행 칸(지문 box1~4, 발문, 선택지, 해설) 어디든 태그를 적으면 그 자리에 사이트 img 폴더의 그림이 들어갑니다.
+ *   <image>                → 이 문항 ID와 같은 이름의 jpg (img/문항ID.jpg)
+ *                            변형 문항(h1_24_03_21_GC001 등)은 그 파일이 없으면 원본 img/h1_24_03_21.jpg
+ *   <image:파일이름>        → img/파일이름.jpg  (예: <image:h1_24_03_21>, <image:map_korea>)
+ *   <image:파일이름.png>    → 확장자를 적으면 그 파일 그대로 (jpg·jpeg·png·gif·webp)
+ *   <image:h1/24/chart1>     → 폴더 경로를 적으면 그 파일 (img/h1/24/chart1.jpg)
+ *   문항 ID로 찾을 때는 학년/연도 세부 폴더(img/h1/24/)를 먼저 보고, 없으면 img 바로 아래를 봅니다.
+ * 태그를 적지 않은 문항은 아무것도 바뀌지 않습니다. 파일이 없으면 그림 자리는 비어 보입니다.
+ */
+const QIMG_DIR = 'img/';
+const QIMG_FIELDS = ['box1', 'box2', 'box3', 'box4', 'question', 'explanation'];
+// 문항 ID를 알 수 있는 곳에서 <image> → <image:문항ID> 로 바꿔 둡니다.
+function qimgBind(text, id) {
+  if (text == null) return text;
+  const s = String(text);
+  if (s.indexOf('<') === -1 || !id) return text;
+  const safeId = String(id).trim();
+  if (!/^[A-Za-z0-9_.\-]+$/.test(safeId)) return text;
+  return s.replace(/<image\s*\/?>/gi, '<image:' + safeId + '>');
+}
+// sanitizeInlineHTML 안에서 이스케이프된 태그를 <img>로 바꿉니다.
+// 문항 ID로 찾을 때 순서 (예: h1_24_03_21_GC001)
+//   img/h1/24/h1_24_03_21_GC001.jpg → img/h1_24_03_21_GC001.jpg → img/h1/24/h1_24_03_21.jpg → img/h1_24_03_21.jpg
+//   (학년/연도 세부 폴더에 넣어도, img 바로 아래에 넣어도 찾습니다)
+// 경로나 확장자를 적은 경우(<image:h1/24/표1>, <image:chart.png>)는 그 파일만 씁니다.
+function qimgTagHtml(name) {
+  const n = String(name || '').trim();
+  if (!/^[A-Za-z0-9_.\-\/]+$/.test(n) || n.indexOf('..') !== -1 || n.charAt(0) === '/') return '';
+  const hasExt = /\.(jpe?g|png|gif|webp)$/i.test(n);
+  let cands;
+  if (hasExt || n.indexOf('/') !== -1) {
+    cands = [QIMG_DIR + n + (hasExt ? '' : '.jpg')];
+  } else {
+    const parts = n.split('_');
+    const ids = [n];
+    if (parts.length > 4) ids.push(parts.slice(0, 4).join('_')); // 변형 → 원본
+    cands = [];
+    ids.forEach(id => {
+      const p = id.split('_');
+      if (p.length >= 2) cands.push(QIMG_DIR + p[0] + '/' + p[1] + '/' + id + '.jpg');
+      cands.push(QIMG_DIR + id + '.jpg');
+    });
+  }
+  const fb = cands.slice(1).join('|');
+  // 파일이 없으면 다음 후보로 바꿔 보고, 모두 없으면 숨깁니다.
+  const onerr = "var l=(this.getAttribute('data-fb')||'').split('|').filter(Boolean);if(l.length){this.setAttribute('data-fb',l.slice(1).join('|'));this.setAttribute('src',l[0]);}else{this.style.display='none';}";
+  return '<img class="qimg" src="' + cands[0] + '"' + (fb ? ' data-fb="' + fb + '"' : '') + ' onerror="' + onerr + '" loading="eager">';
+}
+// 서버 응답 안의 문항마다 <image> 를 그 문항 ID로 묶어 둡니다.
+function _qimgCollect(data, out, depth) {
+  if (!data || depth > 3 || out.length > 5000) return;
+  if (Array.isArray(data)) { data.forEach(x => _qimgCollect(x, out, depth + 1)); return; }
+  if (typeof data !== 'object') return;
+  if ((data.extId || data.qid) && QIMG_FIELDS.some(f => Object.prototype.hasOwnProperty.call(data, f))) { out.push(data); return; }
+  Object.keys(data).forEach(k => { const v = data[k]; if (v && typeof v === 'object') _qimgCollect(v, out, depth + 1); });
+}
+function attachQuestionImages(data) {
+  try {
+    const qs = [];
+    _qimgCollect(data, qs, 0);
+    qs.forEach(q => {
+      const id = String(q.extId || q.qid || '').trim();
+      if (!id) return;
+      QIMG_FIELDS.forEach(f => { if (typeof q[f] === 'string') q[f] = qimgBind(q[f], id); });
+      if (Array.isArray(q.options)) q.options = q.options.map(o => typeof o === 'string' ? qimgBind(o, id) : o);
+    });
+  } catch (e) {}
+  return Promise.resolve();
 }
 
 /* ===================== 공통 유틸 ===================== */
@@ -188,6 +262,10 @@ function normalizeHyphens(str) {
   s = s.replace(/&lt;green&gt;/gi, '<span class="txt-green">').replace(/&lt;\/green&gt;/gi, '</span>');
   s = s.replace(/&lt;orange&gt;/gi, '<span class="txt-orange">').replace(/&lt;\/orange&gt;/gi, '</span>');
   s = s.replace(/&lt;rainbow&gt;([\s\S]*?)&lt;\/rainbow&gt;/gi, function(match, p1) { return applyRainbow(p1); });
+
+  // 4-1. 문항 이미지 태그: <image:파일이름> → img 폴더 그림, ID를 모르는 곳의 <image>는 지웁니다.
+  s = s.replace(/&lt;image\s*[:=]\s*([A-Za-z0-9_.\-\/]+?)\s*\/?&gt;/gi, function(_, name) { return qimgTagHtml(name); })
+       .replace(/&lt;image\s*\/?&gt;/gi, '');
 
   // 5. 이미지 태그 처리
   s = s.replace(/&lt;img\b[^&]*?src\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s&>]+))[^&]*?&gt;/gi, function(_, g1, g2, g3) {

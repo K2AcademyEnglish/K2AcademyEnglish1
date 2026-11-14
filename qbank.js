@@ -1360,7 +1360,8 @@ function qbRenderForm() {
       표: <code>&lt;table&gt;</code> 다음 줄부터 한 줄에 한 행, 칸은 <code>|</code>로 나눕니다. 칸 안 줄바꿈은 <code>;;</code>, 위 칸과 합치려면 칸을 비워 둡니다.<br>
       이미지: <code>&lt;c&gt;https://…jpg&lt;/c&gt;</code> 또는 <code>drive:구글드라이브파일ID</code><br>
       img 폴더 그림: <code>&lt;image&gt;</code> = 이 문항 ID와 같은 이름의 jpg (<code>img/h1_24_03_21.jpg</code>). 변형 문항(<code>_GC001</code> 등)은 그 파일이 없으면 원본 그림을 씁니다.<br>
-      &nbsp;&nbsp;다른 파일: <code>&lt;image:파일이름&gt;</code> → <code>img/파일이름.jpg</code>, 확장자를 적으면 그대로(<code>&lt;image:chart.png&gt;</code>). 파일 이름은 영문·숫자·<code>_ - .</code>만 됩니다.<br>
+      &nbsp;&nbsp;그림은 <code>img/h1/24/</code>처럼 학년/연도 세부 폴더에 넣어도 되고 <code>img</code> 바로 아래에 넣어도 됩니다(세부 폴더를 먼저 찾습니다).<br>
+      &nbsp;&nbsp;다른 파일: <code>&lt;image:파일이름&gt;</code> → <code>img/파일이름.jpg</code>, 경로·확장자를 적으면 그대로(<code>&lt;image:h1/24/chart1&gt;</code>, <code>&lt;image:chart.png&gt;</code>). 파일 이름은 영문·숫자·<code>_ - .</code>만 됩니다.<br>
       질문에 <code>&lt;box&gt;…&lt;/box&gt;</code>를 넣으면 질문 아래 네모 상자로 따로 보입니다.</div>
     </details>
     <datalist id="qbTypeList">${qbTypeOptions()}</datalist>
