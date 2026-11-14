@@ -119,7 +119,8 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
         const isMulti = group.items.length > 1;
         const makePBox = (html) => html ? `<div class="exam-passage ${isMulti ? 'boxed' : ''}">${html}</div>` : '';
         // [수정] 지문이 길 경우 단(Column) 분할은 허용(auto)하고, 페이지 분할만 방지합니다.
-        const wrapAvoid = (html) => html ? `<div style="break-inside: auto !important; page-break-inside: avoid !important;">${html}</div>` : '';
+        // 문항 한 덩어리(지문+발문+선택지). 쪽 나누기는 인쇄 직전에 k2PaginateExam()이 높이를 재서 직접 정합니다.
+        const wrapAvoid = (html) => html ? `<div class="exam-chunk">${html}</div>` : '';
 
         if (isMulti) {
             // 연계 문제 분절 로직
@@ -585,6 +586,24 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
       /* 1쪽: 머리글이 기본 양식보다 높아서 본문 시작을 그만큼 내립니다 */
       #printSection .k2-mode .wk-first-spacer { height: var(--sp, 7mm); }
     }
+    /* ===== 쪽 나누기 (k2PaginateExam) =====
+       한 쪽 = 위 18mm(반복 머리글) + 2단 본문 + 아래 12mm(QR·로고). 문항은 단 사이로는 나뉠 수 있지만 쪽 사이로는 넘기지 않습니다. */
+    @media print {
+      #printSection .exam-body-wrap.k2-paged { padding: 0 !important; -webkit-box-decoration-break: slice !important; box-decoration-break: slice !important; }
+      #printSection .k2-paged .wk-first-spacer { display: none !important; }
+      #printSection .exam-page { width: 180mm; height: 276mm; box-sizing: border-box; padding: 18mm 0 12mm; break-after: page; page-break-after: always; overflow: visible; position: relative; }
+      #printSection .exam-page:last-child { break-after: auto; page-break-after: auto; }
+      #printSection .exam-page.first { padding-top: calc(18mm + var(--sp, 0mm)); }
+      #printSection .exam-page > .exam-columns { height: 100% !important; column-fill: auto !important; }
+      #printSection .k2-measuring .exam-page > .exam-columns { height: calc(100% - 4mm) !important; } /* 잴 때는 4mm 여유를 둡니다 */
+      #printSection .exam-page.oversize { height: auto; }
+      #printSection .exam-page.oversize > .exam-columns { height: auto !important; column-fill: balance !important; }
+      #printSection .exam-chunk { break-inside: auto !important; }
+      #printSection .exam-chunk .exam-passage, #printSection .exam-chunk .exam-q-box,
+      #printSection .exam-chunk .exam-options, #printSection .exam-chunk .exam-q-title-row { break-inside: avoid-column !important; }
+    }
+    /* 화면 미리보기: 쪽 경계를 점선으로 표시 (인쇄에는 영향 없음) */
+    @media screen { #printSection .exam-page + .exam-page { border-top: 1px dashed #cbd5e1; margin-top: 10px; padding-top: 10px; } }
     #printSection .k2-mode .exam-q-id { margin-bottom: 3px !important; }
   `;
   printZone.appendChild(printStyle);
@@ -599,6 +618,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
       const totalImages = images.length;
       const checkAllLoaded = () => {
           if (loadedCount >= totalImages) {
+              k2PaginateExam(printZone);
               printBtn.disabled = false;
               printBtn.style.background = '#2563eb';
               printBtn.style.cursor = 'pointer';
@@ -618,6 +638,144 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
           checkAllLoaded();
       }
   }
+}
+
+/* ===================== 시험지 쪽 나누기 =====================
+ * 크롬은 2단 인쇄에서 "단 사이로는 나눠도 되고 쪽 사이로는 나누지 마라"를 CSS만으로 지켜 주지 않아서,
+ * 인쇄 직전에 인쇄용 스타일을 잠깐 화면에 적용해 높이를 재고, 쪽(.exam-page)을 직접 만듭니다.
+ *  1) 문항 묶음(연계 세트 포함)이 현재 쪽 남은 공간(왼쪽 단 남은 칸 + 오른쪽 단)에 들어가면 그 쪽에 둡니다.
+ *     이때 단 사이로는 상자(지문·보기 상자·선택지) 단위로 나뉩니다.
+ *  2) 안 들어가면 다음 쪽으로 넘깁니다.
+ *  3) 묶음이 한 쪽보다 크면(긴 연계 세트) 문항 하나씩 같은 규칙으로 놓고,
+ *     문항 하나가 한 쪽보다 크면 그 문항만 크롬이 알아서 나누게 둡니다.
+ */
+function _k2PrintOnlyCss() {
+  let css = '';
+  Array.from(document.styleSheets).forEach(sh => {
+    let rules; try { rules = sh.cssRules; } catch (e) { return; }
+    if (!rules) return;
+    Array.from(rules).forEach(r => {
+      if (r.type === CSSRule.MEDIA_RULE && /(^|[\s,])print([\s,]|$)/i.test(r.media.mediaText) && !/screen/i.test(r.media.mediaText)) {
+        Array.from(r.cssRules).forEach(ir => { if (ir.type !== CSSRule.PAGE_RULE) css += ir.cssText + '\n'; });
+      }
+    });
+  });
+  return css;
+}
+function k2PaginateExam(printZone) {
+  try {
+    const wrap = printZone && printZone.querySelector('.exam-body-wrap');
+    if (!wrap) return;
+    // 처음 그린 상태(문항 묶음 목록)를 보관해 두고, 매번 거기서 다시 나눕니다.
+    if (!wrap._k2Pristine) {
+      const cols0 = wrap.querySelector(':scope > .exam-columns');
+      if (!cols0) return;
+      wrap._k2Pristine = Array.from(cols0.children).map(b => b.cloneNode(true));
+    }
+    // 나누는 동안 묶음을 쪼개 옮기므로, 매번 보관본을 복사해서 씁니다.
+    const blocks = wrap._k2Pristine.map(b => b.cloneNode(true));
+    const spacer = wrap.querySelector('.wk-first-spacer');
+    const sp = spacer ? (spacer.style.getPropertyValue('--sp') || '0mm') : '0mm';
+
+    // 인쇄용 스타일을 잠깐 화면에 적용 (같은 동기 실행 안에서 지우므로 화면에는 보이지 않습니다)
+    const measure = document.createElement('style');
+    measure.textContent = _k2PrintOnlyCss();
+    document.head.appendChild(measure);
+    wrap.classList.add('k2-paged', 'k2-measuring');
+
+    // 기존 쪽/단 비우기
+    Array.from(wrap.querySelectorAll(':scope > .exam-page, :scope > .exam-columns')).forEach(n => n.remove());
+
+    const pages = [];
+    let page = null, cols = null;
+    const newPage = () => {
+      page = document.createElement('div');
+      page.className = 'exam-page' + (pages.length === 0 ? ' first' : '');
+      if (pages.length === 0) page.style.setProperty('--sp', sp);
+      cols = document.createElement('div');
+      cols.className = 'exam-columns';
+      page.appendChild(cols);
+      wrap.appendChild(page);
+      pages.push(page);
+    };
+    const overflow = () => cols.scrollWidth > cols.clientWidth + 2;
+    newPage();
+    if (cols.clientWidth < 50) { // 화면에 그릴 수 없는 상태 → 쪽 나누기를 하지 않고 원래 흐름으로
+      wrap.classList.remove('k2-paged', 'k2-measuring');
+      pages.forEach(p => p.remove());
+      const c = document.createElement('div'); c.className = 'exam-columns';
+      blocks.forEach(b => c.appendChild(b)); wrap.appendChild(c);
+      measure.remove();
+      return;
+    }
+    // 한 단보다 긴 상자(긴 지문 등)는 '단 안에 통째로' 규칙을 풀어 줍니다. 안 그러면 크롬이 어디에도 못 놓습니다.
+    {
+      const colH = cols.clientHeight;
+      const colW = (cols.clientWidth - 38) / 2; // 단 너비 (단 간격 10mm ≈ 38px)
+      const probe = document.createElement('div');
+      probe.style.cssText = 'position:absolute;left:-9999px;top:0;width:' + colW + 'px;';
+      wrap.appendChild(probe);
+      blocks.forEach(b => {
+        probe.appendChild(b);
+        b.querySelectorAll('.exam-passage, .exam-q-box, .exam-options').forEach(box => {
+          if (box.offsetHeight > colH - 30) box.style.setProperty('break-inside', 'auto', 'important');
+        });
+        probe.removeChild(b);
+      });
+      probe.remove();
+    }
+    const pageEmpty = () => cols.children.length === 0;
+    const makeOversize = () => { page.classList.add('oversize'); newPage(); };
+
+    blocks.forEach(block => {
+      // 1) 묶음 통째로
+      cols.appendChild(block);
+      if (!overflow()) return;
+      cols.removeChild(block);
+      if (!pageEmpty()) {
+        newPage();
+        cols.appendChild(block);
+        if (!overflow()) return;
+        cols.removeChild(block);
+      }
+      // 2) 한 쪽보다 큰 묶음 → 문항(조각) 하나씩
+      const parts = Array.from(block.children);
+      let shell = null;
+      const freshShell = () => { shell = block.cloneNode(false); cols.appendChild(shell); };
+      freshShell();
+      parts.forEach(part => {
+        shell.appendChild(part);
+        if (!overflow()) return;
+        shell.removeChild(part);
+        if (shell.children.length === 0 && cols.children.length === 1) {
+          // 빈 쪽에도 안 들어가는 문항: 이 쪽만 크롬이 자연스럽게 나누게 둡니다.
+          shell.appendChild(part);
+          makeOversize(); freshShell();
+          return;
+        }
+        if (shell.children.length === 0) cols.removeChild(shell);
+        newPage(); freshShell();
+        shell.appendChild(part);
+        if (overflow()) { makeOversize(); freshShell(); }
+      });
+      if (shell && shell.children.length === 0 && shell.parentNode) shell.parentNode.removeChild(shell);
+    });
+    // 빈 마지막 쪽 정리
+    while (pages.length > 1 && pages[pages.length - 1].querySelector('.exam-columns').children.length === 0) pages.pop().remove();
+
+    wrap.classList.remove('k2-measuring');
+    measure.remove();
+  } catch (e) {
+    console.warn('쪽 나누기 실패, 기본 흐름으로 인쇄합니다.', e);
+  }
+}
+// 인쇄 직전에 한 번 더 (이미지가 늦게 뜬 경우 등)
+if (!window.__k2PaginateHooked) {
+  window.__k2PaginateHooked = true;
+  window.addEventListener('beforeprint', () => {
+    const z = document.getElementById('printSection');
+    if (z && z.querySelector('.exam-body-wrap')) k2PaginateExam(z);
+  });
 }
 
 /* 정답지 출력용 렌더링 함수 추가 */
