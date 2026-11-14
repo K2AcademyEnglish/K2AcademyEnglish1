@@ -1956,9 +1956,11 @@ function renderWeeklyTable(message) {
     const hasScope = WK_GRADES.some(g => weeklySelState[g.id].years.size || weeklySelState[g.id].months.size);
     if (!hasScope && !onlySel) return showMsg('왼쪽 <b>② 출제 범위</b>에서 학년 탭을 눌러 연도나 월을 골라 주십시오.');
 
+    const noDesc = !_wkIncludeDesc();
     const rows = WEEKLY_INVENTORY_DATA.filter(row => {
         if (onlySel) return WK_SEL.has(String(row.qid));
         if (excludeSolved && row.isSolved) return false;
+        if (noDesc && _wkIsDesc(row)) return false;
         return _wkInScope(row);
     });
     if (!rows.length) return showMsg(onlySel ? '선택한 문항이 없습니다.' : '조건에 맞는 문항이 없습니다. 범위를 넓혀 보십시오.');
@@ -2055,6 +2057,21 @@ function _wkBindHeaderOnce() {
     });
 }
 
+// 서술형 포함 여부 (기본: 포함). 끄면 표와 자동 선택에서 서술형을 빼고, 이미 고른 서술형도 선택을 풉니다.
+function _wkIncludeDesc() {
+    const el = document.getElementById('chkWkIncludeDesc');
+    return !el || el.checked;
+}
+function _wkIsDesc(row) { return String((row && row.type) || '').includes('서술형'); }
+function onWkDescToggle() {
+    if (!_wkIncludeDesc()) {
+        let n = 0;
+        WEEKLY_INVENTORY_DATA.forEach(r => { if (_wkIsDesc(r) && WK_SEL.delete(String(r.qid))) n++; });
+        if (n) showToast(`선택했던 서술형 ${n}문항을 뺐습니다.`);
+    }
+    renderWeeklyTable();
+}
+
 function clearWeeklySelection() {
     WK_SEL.clear();
     renderWeeklyTable();
@@ -2120,7 +2137,8 @@ function runWeeklyAutoSelection() {
     const inScope = WEEKLY_INVENTORY_DATA.filter(_wkInScope);
     if (!inScope.length) { showCustomAlert('왼쪽 ② 출제 범위에서 학년 탭을 눌러 연도나 월을 먼저 골라 주십시오.'); return; }
 
-    const pool = inScope.filter(r => !(excludeSolved && r.isSolved) && !(skipRecent && _wkIsRecent(r)));
+    const noDesc = !_wkIncludeDesc();
+    const pool = inScope.filter(r => !(excludeSolved && r.isSolved) && !(skipRecent && _wkIsRecent(r)) && !(noDesc && _wkIsDesc(r)));
     const weak = _wkWeakTypes();
 
     // 지문 세트 묶기 (세트 중 하나라도 빠지는 조건이면 세트 전체를 뺌)
@@ -2179,6 +2197,7 @@ function runWeeklyAutoSelection() {
         const why = [];
         if (skipRecent) why.push('최근 4주 배부 문항 빼기');
         if (excludeSolved) why.push('안 푼 문제만');
+        if (noDesc) why.push('서술형 빼기');
         showToast(`범위 안 문항이 부족해 ${total}문항만 골랐습니다.` + (why.length ? ` (${why.join(', ')} 조건을 풀거나 범위를 넓혀 보십시오)` : ' 범위를 넓혀 보십시오.'), 'error');
     } else {
         showToast(`${total}문항을 골랐습니다. 표에서 확인하고 바꿀 수 있습니다.`);
