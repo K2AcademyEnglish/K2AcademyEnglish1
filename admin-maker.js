@@ -1084,15 +1084,15 @@ function renderHistoryUI() {
     if (row.isWeekly) {
         tr.querySelector('.btn-report').onclick = () => openWeeklyReport(row.id);
     }
-    tr.querySelector('.btn-reprint').onclick = () => doReprintAssignment(row.student, row.qids, row.title, row.date, row.studentId);
-    tr.querySelector('.btn-reprint-wrong').onclick = () => doReprintWrongOnly(row.student, row.qids, row.title, row.date, row.studentId, row.id);    
+    tr.querySelector('.btn-reprint').onclick = () => doReprintAssignment(row.student, row.qids, row.title, row.date, row.studentId, row.isWeekly);
+    tr.querySelector('.btn-reprint-wrong').onclick = () => doReprintWrongOnly(row.student, row.qids, row.title, row.date, row.studentId, row.id, row.isWeekly);    
     fragment.appendChild(tr);
   });
   tbody.appendChild(fragment);
 }
 
 // 3. 재출력 기능 (기존 renderQuestionsForPrint 재사용)
-function doReprintAssignment(studentName, qidsStr, originalTitle, originalDate, studentId) {
+function doReprintAssignment(studentName, qidsStr, originalTitle, originalDate, studentId, isWeekly) {
   let qids = [];
   try { qids = JSON.parse(qidsStr); } catch(e) { showCustomAlert('데이터 오류'); return; }
   
@@ -1111,7 +1111,7 @@ function doReprintAssignment(studentName, qidsStr, originalTitle, originalDate, 
      
      // ★ [여기가 중요] 넘겨받은 originalDate를 인쇄 함수에 전달
      const printName = studentId ? `${studentName}(${studentId})` : studentName;
-     renderQuestionsForPrint(qs, finalTitle, originalDate, printName, qids);
+     renderQuestionsForPrint(qs, finalTitle, originalDate, printName, qids, { weekly: !!isWeekly });
 
   }).withFailureHandler(err => {
      if(loadEl) loadEl.classList.remove('active');
@@ -1128,7 +1128,7 @@ function withOriginalNumbers(qs, qids) {
 }
 
 // 3-2. 오답만 출력 기능 (현재 오답 + 고쳐서 맞힌 문항 필터링)
-function doReprintWrongOnly(studentName, qidsStr, originalTitle, originalDate, studentId, assignmentId) {
+function doReprintWrongOnly(studentName, qidsStr, originalTitle, originalDate, studentId, assignmentId, isWeekly) {
   let qids = [];
   if (Array.isArray(qidsStr)) {
      qids = qidsStr;
@@ -1175,7 +1175,7 @@ function doReprintWrongOnly(studentName, qidsStr, originalTitle, originalDate, s
      const printName = studentId ? `${studentName}(${studentId})` : studentName;
      
      // 원래 과제지의 문항 번호를 그대로 붙여 인쇄 (예: 3번, 7번, 12번)
-     renderQuestionsForPrint(withOriginalNumbers(wrongQs, qids), finalTitle, originalDate, printName, qids);
+     renderQuestionsForPrint(withOriginalNumbers(wrongQs, qids), finalTitle, originalDate, printName, qids, { weekly: !!isWeekly });
 
   }).withFailureHandler(err => {
      if(loadEl) loadEl.classList.remove('active');
@@ -2218,7 +2218,7 @@ function submitWeeklyFinal() {
             const printName = `${name}(${tId})`;
             const finish = realQs => {
                 done();
-                renderQuestionsForPrint(realQs, customTitle, null, printName, qids);
+                renderQuestionsForPrint(realQs, customTitle, null, printName, qids, { weekly: true });
                 // 같은 시험을 두 번 내지 않도록 선택·제목을 비우고, 배부 횟수를 다시 받아 옵니다.
                 WK_SEL.clear();
                 if (titleInput) titleInput.value = '';

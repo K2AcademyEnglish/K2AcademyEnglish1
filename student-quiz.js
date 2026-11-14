@@ -70,6 +70,7 @@ function renderQuestions(qs){
 
   const quizPage = document.getElementById('quizPage');
   quizPage.removeAttribute('data-assign-id');
+  quizPage.classList.remove('wk-omr');
   quizPage.innerHTML = '';
 
   // 지문 세트(groupHash)별로 묶기
@@ -1211,7 +1212,8 @@ function renderAssignmentList(container, data, isCompleted) {
       const card = document.createElement('div');
       card.className = 'question-card';
       card.style.marginBottom = '12px';
-      card.style.borderLeft = isCompleted ? '5px solid #6b7280' : '5px solid #2b6cb0';
+      card.style.borderLeft = isCompleted ? '5px solid #6b7280' : (asgn.isWeekly ? '5px solid #1e3a5f' : '5px solid #2b6cb0');
+      if (asgn.isWeekly) card.classList.add('wk-asgn-card');
 
       let dateStr = asgn.date;
       try { dateStr = String(asgn.date).substring(5, 16).replace('-','/'); } catch(e){}
@@ -1223,12 +1225,12 @@ function renderAssignmentList(container, data, isCompleted) {
       // ★ 버튼 수정: qids를 직접 넘기지 않고 id와 모드만 전달
       const btnHtml = isCompleted
         ? `<button class="btn-ghost" style="width:100%; padding:8px; font-size:14px;" onclick="startRetryAssignment('${asgn.id}', null, true)">📊 결과 확인</button>`
-        : `<button class="btn-primary" style="width:100%; padding:10px 0; font-size:14px; background:#2b6cb0; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;" onclick="startAssignment('${asgn.id}', 'omr')">📝 과제 풀기 (OMR & 온라인)</button>`;
+        : `<button class="btn-primary" style="width:100%; padding:10px 0; font-size:14px; background:${asgn.isWeekly ? '#1e3a5f' : '#2b6cb0'}; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;" onclick="startAssignment('${asgn.id}', 'omr')">📝 과제 풀기 (OMR & 온라인)</button>`;
 
       card.innerHTML = `
         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
           <div>
-            <h3 style="margin:0 0 6px; font-size:16px; color:#111827;">${sanitizeInlineHTML(asgn.title)}</h3>
+            <h3 style="margin:0 0 6px; font-size:16px; color:#111827;">${asgn.isWeekly ? '<span class="wk-badge">주간평가</span>' : ''}${sanitizeInlineHTML(asgn.title)}</h3>
             <div style="font-size:12px; color:#6b7280;">📅 ${dateStr} | 📝 ${asgn.count}문항</div>
           </div>
           ${statusBadge}
@@ -1566,6 +1568,11 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
       quizPage.removeAttribute('data-assign-id');
   }
 
+  // 주간평가면 시험지와 같은 남색 양식(머리글 띠·번호 네모)으로 보여 줍니다.
+  const wkAsgn = assignmentId && typeof ASGN_CACHE !== 'undefined' ? ASGN_CACHE[assignmentId] : null;
+  const isWeeklyOMR = !!(wkAsgn && wkAsgn.isWeekly);
+  quizPage.classList.toggle('wk-omr', isWeeklyOMR);
+
   // [속도 최적화 1] 실제 화면(DOM)을 직접 건드리지 않고 가상 도화지(Fragment) 생성
   quizPage.innerHTML = '';
   const fragment = document.createDocumentFragment();
@@ -1606,8 +1613,19 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
       headerHtml = `<h2 style="margin:0; color:#1e40af; font-size:20px;">📝 과제 답안 제출</h2>`;
   }
 
+  if (isWeeklyOMR) {
+      const t = String(wkAsgn.title || '');
+      const wkWeek = (t.match(/\d+월\s*\d+주차/) || [''])[0];
+      const wkLv = (t.match(/Lv\.?\s*(\d+)/i) || [])[1] || '';
+      headerHtml = `<div class="wk-band">
+              <div class="wk-brand"><span class="wk-k2">K2</span> WEEKLY TEST</div>
+              <div class="wk-band-title">주간평가${wkLv ? `<span class="wk-lv">Level ${escapeHTML(wkLv)}</span>` : ''}</div>
+          </div>
+          <div class="wk-sub">${headerHtml.replace(/<h2[^>]*>/, '<div class="wk-sub-title">').replace('</h2>', '</div>')}<div class="wk-sub-count">${qs.length}문항</div></div>`;
+  }
+
   const header = document.createElement('div');
-  header.className = 'omr-header';
+  header.className = 'omr-header' + (isWeeklyOMR ? ' wk-omr-header' : '');
   header.innerHTML = headerHtml;
   fragment.appendChild(header);
 
@@ -1654,7 +1672,9 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
     let titleColor = isCorrect ? (isCorrected ? "#d97706" : "#059669") : (isRealWrong ? "#dc2626" : "#2b6cb0"); 
     let statusTxt = isCorrect ? (isCorrected ? " (정답 ▲)" : " (정답 ✓)") : (isRealWrong ? " (오답 ✖)" : "");
 
-    title.innerHTML = `<span style="font-size:18px; font-weight:bold; color:${titleColor};">${idx + 1}번${statusTxt}</span>`;
+    title.innerHTML = isWeeklyOMR
+        ? `<span class="wk-qnum">${idx + 1}</span><span style="font-size:14px; font-weight:bold; color:${titleColor};">${statusTxt.trim()}</span>`
+        : `<span style="font-size:18px; font-weight:bold; color:${titleColor};">${idx + 1}번${statusTxt}</span>`;
     title.style.margin = '0';
     headerFlex.appendChild(title);
 

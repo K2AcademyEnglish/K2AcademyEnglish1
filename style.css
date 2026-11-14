@@ -2076,3 +2076,27 @@ html body #selectPage.panel .sf-type input { width: 17px !important; height: 17p
 /* 로그인: 이 기기에서 로그인 유지 */
 #startPage .keep-login { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 4px 0 10px; font-size: 14px; color: #4b5563; cursor: pointer; user-select: none; }
 #startPage .keep-login input { width: 18px; height: 18px; margin: 0; }
+
+
+/* ===================== 주간평가: 학생 풀이 화면 (시험지와 같은 남색 양식) ===================== */
+.wk-badge { display:inline-block; background:#1e3a5f; color:#fff; font-size:11px; font-weight:700; padding:2px 7px; border-radius:4px; margin-right:6px; vertical-align:2px; }
+#quizPage.wk-omr .omr-header.wk-omr-header { padding:0; background:#fff; border:2px solid #1e3a5f; border-radius:10px; overflow:hidden; text-align:left; }
+#quizPage.wk-omr .wk-band { display:flex; justify-content:space-between; align-items:center; gap:10px; background:#1e3a5f; color:#fff; padding:10px 16px; flex-wrap:wrap; }
+#quizPage.wk-omr .wk-brand { font-size:11px; font-weight:700; letter-spacing:3px; opacity:.85; }
+#quizPage.wk-omr .wk-k2 { display:inline-block; background:#fff; color:#1e3a5f; padding:0 5px; border-radius:3px; letter-spacing:0; margin-right:2px; font-weight:900; }
+#quizPage.wk-omr .wk-band-title { font-size:20px; font-weight:900; letter-spacing:-0.5px; display:flex; align-items:center; gap:8px; }
+#quizPage.wk-omr .wk-lv { font-size:11px; font-weight:700; border:1px solid #fff; border-radius:10px; padding:1px 8px; letter-spacing:0; }
+#quizPage.wk-omr .wk-sub { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:4px 10px; padding:10px 16px; background:#e8eef5; font-size:14px; color:#1e3a5f; }
+#quizPage.wk-omr .wk-sub > div:not(.wk-sub-title):not(.wk-sub-count) { flex-basis:100%; order:3; font-size:13px; color:#374151; line-height:1.5; }
+#quizPage.wk-omr .wk-sub-title { font-size:16px; font-weight:800; }
+#quizPage.wk-omr .wk-sub-count { font-weight:800; white-space:nowrap; }
+#quizPage.wk-omr .omr-card { border-top:3px solid #1e3a5f; }
+#quizPage.wk-omr .question-title { display:flex; align-items:center; gap:8px; }
+#quizPage.wk-omr .wk-qnum { display:inline-flex; align-items:center; justify-content:center; min-width:28px; height:28px; padding:0 5px; box-sizing:border-box; background:#1e3a5f; color:#fff; border-radius:5px; font-size:15px; font-weight:800; }
+#quizPage.wk-omr .question-title.wrong .wk-qnum { background:#dc2626; }
+#quizPage.wk-omr .question-title.correct .wk-qnum { background:#059669; }
+#quizPage.wk-omr .question-title.corrected .wk-qnum { background:#d97706; }
+#quizPage.wk-omr .omr-opt-label.active { background:#1e3a5f; border-color:#1e3a5f; }
+#quizPage.wk-omr .online-box .op-passage { border-color:#1e3a5f; }
+#quizPage.wk-omr .online-box .op-opt.selected { background:#e8eef5; border-color:#1e3a5f; color:#1e3a5f; }
+#quizPage.wk-omr .online-box .op-opt.selected .op-sym { color:#1e3a5f; }

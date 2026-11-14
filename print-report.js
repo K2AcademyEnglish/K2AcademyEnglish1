@@ -9,7 +9,11 @@ function siteQrSrc() {
   return 'https://' + 'i.imgur.com/R9QpYH9.jpeg';
 }
 // qrQids: 과제 문항 목록. 주면 바닥글에 그 과제 OMR로 가는 QR(출력일부터 7일)을 넣습니다.
-function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
+// opts.weekly: 주간평가 전용 양식(머리글·번호 모양이 다르고, 문항 출처·난이도를 찍지 않습니다)
+function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, opts){
+  const isWeekly = !!(opts && opts.weekly);
+  // 문항 위 작은 줄(출처 · Lv). 주간평가지는 학부모가 보므로 출처를 숨깁니다.
+  const idLine = (displayId, q) => isWeekly ? '' : `<div class="exam-q-id"><span>${escapeHTML(displayId)}</span><span style="font-weight: bold;">${q.difficulty ? `Lv. ${q.difficulty}` : ''}</span></div>`;
   const printZone = document.getElementById('printSection');
   printZone.style.cssText = "display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; z-index:9999; overflow-y:auto;";
   printZone.innerHTML = '';
@@ -37,7 +41,8 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
 
               // [글자 수 기반 폰트 크기 계산]
               const rawTitle = pageTitle ? pageTitle : '문제 제목';
-              const titleLen = rawTitle.length;
+              // 색 태그(<red>, <rainbow> 등)는 글자 수에서 빼고 실제로 보이는 글자만 셉니다.
+              const titleLen = String(rawTitle).replace(/<[^>]*>/g, '').length;
               let titleFontSize = 18;
               if (titleLen > 85) titleFontSize = 10;
               else if (titleLen > 70) titleFontSize = 12;
@@ -57,6 +62,36 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
                   </div>
                 </div>
               `;
+              // [주간평가] 전용 머리글: 남색 띠 + 이름/날짜/문항/점수 칸
+              const wkWeek = (String(rawTitle).match(/\d+월\s*\d+주차/) || [''])[0];
+              const wkLv = (String(rawTitle).match(/Lv\.?\s*(\d+)/i) || [])[1] || '';
+              const wkName = studentName ? sanitizeInlineHTML(String(studentName).replace(/\([^)]*\)\s*$/, '')) : '';
+              // 머리글(1쪽): 색 띠 + 제목 줄 + 이름/날짜/문항 칸. 주간평가는 남색, 일반 과제는 파란색으로 구별합니다.
+              // 제목 줄은 흰 바탕이라 <red>·<rainbow> 같은 색 태그가 그대로 보이고, 길면 글자 크기를 줄여 두 줄까지 씁니다.
+              const autoWeeklyTitle = /^.+\s주간평가\(Lv\.\d+\)\s*-\s*\d+월\s*\d+주차$/.test(String(rawTitle).trim());
+              const showTitleRow = true; // 주간평가도 띠 아래에 과제 제목 줄을 항상 둡니다
+              const bandRightHTML = isWeekly
+                ? `<div class="wk-band-title">주간평가${wkLv ? `<span class="wk-lv">Level ${escapeHTML(wkLv)}</span>` : ''}</div>`
+                : '';
+              const infoName = isWeekly ? wkName : (studentName ? sanitizeInlineHTML(studentName) : '');
+              const BAND_MM = 7, TITLE_MM = showTitleRow ? 13 : 0, INFO_MM = 8;
+              const spacerMm = Math.max(0, BAND_MM + TITLE_MM + INFO_MM + 1 + 5 - 18); // 본문 기본 윗여백 18mm를 넘는 만큼
+              const wkHeaderHTML = `
+                <div class="exam-header wk-header">
+                  <div class="wk-band" style="height:${BAND_MM}mm;">
+                    <div class="wk-brand"><span class="wk-k2">K2</span> ${isWeekly ? 'WEEKLY TEST' : 'ASSIGNMENT'}</div>
+                    ${bandRightHTML}
+                  </div>
+                  ${showTitleRow ? `<div class="k2-title-row" style="height:${TITLE_MM}mm;"><div class="k2-title" style="font-size:${titleFontSize}px;">${sanitizeInlineHTML(rawTitle)}</div></div>` : ''}
+                  <table class="wk-info" style="height:${INFO_MM}mm;"><tr>
+                    <th>이름</th><td class="wk-name">${infoName}</td>
+                    <th>날짜</th><td>${dateStr}</td>
+                    <th>문항</th><td>${qs.length}문항</td>
+                  </tr></table>
+                </div>
+              `;
+              // 2쪽부터 위쪽에 반복되는 제목 줄: 기존 규칙 그대로 과제 제목(색 태그 포함)을 씁니다.
+              const runningTitle = sanitizeInlineHTML(rawTitle);
               let bodyHTML = '<div class="exam-columns">';
   const symbols = ['①','②','③','④','⑤'];
   const groups = new Map();
@@ -110,7 +145,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
                 }
                 let finalQText = toOneLine(preservedHTML).trim();
                 
-                firstItemHtml += `<div class="exam-q-id"><span>${escapeHTML(displayId)}</span><span style="font-weight: bold;">${q.difficulty ? `Lv. ${q.difficulty}` : ''}</span></div>`;
+                firstItemHtml += idLine(displayId, q);
                 firstItemHtml += `<div class="exam-q-title-row"><span class="exam-q-num">${numOf(q, qNum)}</span><span class="exam-q-text">${finalQText}</span></div>`;
                 if (extractedBox) firstItemHtml += extractedBox;
                 
@@ -157,7 +192,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
                 }
                 let finalQText = toOneLine(preservedHTML).trim();
                 
-                let qHtml = `<div class="exam-q-id"><span>${escapeHTML(displayId)}</span><span style="font-weight: bold;">${q.difficulty ? `Lv. ${q.difficulty}` : ''}</span></div>`;
+                let qHtml = idLine(displayId, q);
                 qHtml += `<div class="exam-q-title-row"><span class="exam-q-num">${numOf(q, qNum)}</span><span class="exam-q-text">${finalQText}</span></div>`;
                 if (extractedBox) qHtml += extractedBox;
                 
@@ -198,7 +233,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
                 }
                 let finalQText = toOneLine(preservedHTML).trim();
                 
-                let chunk1 = `<div class="exam-q-id"><span>${escapeHTML(displayId)}</span><span style="font-weight: bold;">${q.difficulty ? `Lv. ${q.difficulty}` : ''}</span></div>`;
+                let chunk1 = idLine(displayId, q);
                 chunk1 += `<div class="exam-q-title-row"><span class="exam-q-num">${numOf(q, qNum)}</span><span class="exam-q-text">${finalQText}</span></div>`;
                 if (extractedBox) chunk1 += extractedBox;
                 if (combinedPassage) chunk1 += makePBox(combinedPassage);
@@ -236,20 +271,23 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
     try {
       qrUrl = QR.dataUrl(qrAssignUrl(qrQids), { ecc: 'L', border: 1 });
       const ex = qrAssignExpiry();
-      qrCap = `<span class="running-qr-cap">휴대폰으로 찍어<br>OMR 답 입력<br>(~${ex.getMonth() + 1}/${ex.getDate()})</span>`;
+      qrCap = isWeekly
+        ? `<span class="running-qr-cap wk-qr-cap"><b>QR 찍고 정답 입력</b><br>${ex.getMonth() + 1}/${ex.getDate()}까지</span>`
+        : `<span class="running-qr-cap">휴대폰으로 찍어<br>OMR 답 입력<br>(~${ex.getMonth() + 1}/${ex.getDate()})</span>`;
     } catch (e) { /* QR을 못 만들면 기존 그림 */ }
   }
   const logoUrl = 'https://' + 'i.imgur.com/NVHBqH2.png';
 
   const pageLayoutHTML = `
-    <div style="position: relative; width: 100%; height: auto;">
+    <div class="k2-mode ${isWeekly ? 'wk-mode' : 'as-mode'}" style="position: relative; width: 100%; height: auto; --k2c: ${isWeekly ? '#1e3a5f' : '#2b6cb0'}; --k2l: ${isWeekly ? '#e8eef5' : '#e6f0fa'};">
       <div class="print-running-header no-print-img-bug">
-        <span class="running-title-txt">${sanitizeInlineHTML(rawTitle)}</span>
+        <span class="running-title-txt">${runningTitle}</span>
       </div>
 
-      ${headerHTML}
+      ${wkHeaderHTML}
 
       <div class="exam-body-wrap">
+        <div class="wk-first-spacer" style="--sp:${spacerMm}mm;"></div>
         ${bodyHTML}
       </div>
 
@@ -511,12 +549,49 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
           overflow-wrap: break-word !important;
       }
     }
+
+    /* ===== K2 시험지 양식 (주간평가=남색 / 일반 과제=파란색, 색은 --k2c·--k2l) ===== */
+    #printSection .wk-header { display: block; border: 2px solid var(--k2c); border-bottom: 2px solid var(--k2c); padding: 0; margin-bottom: 18px; background: #fff; }
+    #printSection .wk-band { display: flex; justify-content: space-between; align-items: center; box-sizing: border-box; background: var(--k2c); padding: 0 14px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #printSection .wk-band, #printSection .wk-band * { color: #fff !important; }
+    #printSection .k2-title-row { display: flex; align-items: center; box-sizing: border-box; padding: 0 14px; border-bottom: 1px solid var(--k2c); overflow: hidden; }
+    #printSection .k2-title { width: 100%; font-family: 'Malgun Gothic', sans-serif; font-weight: 800; line-height: 1.3; word-break: keep-all; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    #printSection .wk-brand { font-family: 'Malgun Gothic', sans-serif; font-size: 11px; font-weight: 700; letter-spacing: 3px; opacity: .85; }
+    #printSection .wk-k2 { display: inline-block; background: #fff; color: var(--k2c) !important; padding: 0 5px; border-radius: 3px; letter-spacing: 0; margin-right: 2px; font-weight: 900; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #printSection .wk-band-title { font-family: 'Malgun Gothic', sans-serif; font-size: 14px; line-height: 1; font-weight: 900; letter-spacing: -0.5px; display: flex; align-items: center; gap: 8px; }
+    #printSection .wk-lv { font-size: 10px; line-height: 1.2; font-weight: 700; border: 1px solid #fff; border-radius: 10px; padding: 0 7px; letter-spacing: 0; }
+    #printSection .wk-info { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: 'Malgun Gothic', sans-serif; }
+    #printSection .wk-info th, #printSection .wk-info td { border-left: 1px solid var(--k2c); padding: 0 4px; font-size: 13px; text-align: center; height: 20px; }
+    #printSection .wk-info th { width: 10%; background: var(--k2l); font-weight: 700; color: var(--k2c) !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #printSection .wk-info tr > *:first-child { border-left: none; }
+    #printSection .wk-info td { font-weight: 700; }
+    #printSection .wk-info td.wk-name { width: 34%; font-size: 15px; }
+    #printSection .k2-mode .exam-q-num {
+        display: inline-flex !important; align-items: center !important; justify-content: center !important;
+        min-width: 24px !important; height: 24px !important; padding: 0 4px !important; box-sizing: border-box !important;
+        background: var(--k2c) !important; color: #fff !important; border-radius: 4px !important;
+        font-size: 14px !important; font-weight: 800 !important; margin-right: 8px !important;
+        -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
+    }
+    #printSection .wk-qr-cap { font-size: 8pt !important; color: #1e3a5f !important; }
+    /* 선택지 번호(①~⑤)를 본문보다 작게 */
+    #printSection .k2-mode .exam-opt-num { font-size: 10.5px !important; font-weight: normal !important; width: auto !important; margin-right: 4px !important; }
+    #printSection .k2-mode .exam-q-range-title { border-left: 4px solid var(--k2c); padding-left: 8px; }
+    #printSection .k2-mode .exam-q-block { padding-top: 4px; }
+    @media print {
+      #printSection .k2-mode .exam-header.wk-header { border: 2px solid var(--k2c) !important; padding-bottom: 0 !important; background: #fff !important; }
+      #printSection .k2-mode .exam-columns { column-rule: 1px solid var(--k2c) !important; }
+      #printSection .k2-mode .running-title-txt { font-family: 'Malgun Gothic', sans-serif; }
+      /* 1쪽: 머리글이 기본 양식보다 높아서 본문 시작을 그만큼 내립니다 */
+      #printSection .k2-mode .wk-first-spacer { height: var(--sp, 7mm); }
+    }
+    #printSection .k2-mode .exam-q-id { margin-bottom: 3px !important; }
   `;
   printZone.appendChild(printStyle);
 
   // 정답지 및 이미지 처리 로직 (기존과 동일)
   const answerBtn = document.getElementById('btnPrintAnswers');
-  if(answerBtn) answerBtn.onclick = () => renderAnswerSheetForPrint(qs, pageTitle, dateInput, studentName, qrQids);
+  if(answerBtn) answerBtn.onclick = () => renderAnswerSheetForPrint(qs, pageTitle, dateInput, studentName, qrQids, opts);
   const printBtn = document.getElementById('btnPrintAction');
   if (printBtn) {
       const images = printZone.querySelectorAll('img');
@@ -546,7 +621,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids){
 }
 
 /* 정답지 출력용 렌더링 함수 추가 */
-function renderAnswerSheetForPrint(qs, pageTitle, dateInput, studentName, qrQids) {
+function renderAnswerSheetForPrint(qs, pageTitle, dateInput, studentName, qrQids, opts) {
   const printZone = document.getElementById('printSection');
   printZone.style.cssText = "display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:#fff; z-index:9999; overflow-y:auto;";
   printZone.innerHTML = '';
@@ -713,7 +788,7 @@ function renderAnswerSheetForPrint(qs, pageTitle, dateInput, studentName, qrQids
                 }
               `;
               printZone.appendChild(ansPrintStyle);
-              document.getElementById('btnBackToQuestions').onclick = () => renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids);
+              document.getElementById('btnBackToQuestions').onclick = () => renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, opts);
 }
 
 /* 닫기 버튼용 함수 */
@@ -729,6 +804,20 @@ window.closePrintPreview = closePrintPreview;
 /* ===================== [신규] 주간평가 리포트 로직 ===================== */
 let chartRadarInst = null;
 let chartLineInst = null;
+
+function fitReportToOnePage() {
+    const paper = document.getElementById('reportPaper');
+    const inner = document.getElementById('rpInner');
+    if (!paper || !inner) return;
+    inner.style.transform = ''; inner.style.width = '';
+    const cs = getComputedStyle(paper);
+    const avail = paper.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    const need = inner.scrollHeight;
+    if (need <= avail) return;
+    const k = Math.max(0.6, avail / need);
+    inner.style.width = (100 / k) + '%';
+    inner.style.transform = `scale(${k})`;
+}
 
 function openWeeklyReport(assignmentId, isSharedMode = false) {
     const printZone = document.getElementById('printSection');
@@ -750,15 +839,15 @@ if(loadEl) {
         let controlsHTML = '';
         if (isSharedMode) {
             controlsHTML = `
-              <div class="print-controls" style="position: fixed; top: 0; left: 0; right: 0; background: #374151; color: white; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 10000; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+              <div class="print-controls no-print" style="position: fixed; top: 0; left: 0; right: 0; background: #374151; color: white; padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; z-index: 10000; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
                 <div style="font-size: 16px; font-weight: bold;">📊 케이투학원 주간평가 리포트</div>
               </div>
-              <div class="print-controls" style="height: 60px;"></div>
+              <div class="print-controls no-print" style="height: 60px;"></div>
             `;
         } else {
             const btnStyle = "width: 88px; padding: 6px 0; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap; flex-shrink: 0; text-align: center; box-sizing: border-box;";
             controlsHTML = `
-              <div class="print-controls" style="position: fixed; top: 0; left: 0; right: 0; background: #374151; color: white; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; z-index: 10000; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
+              <div class="print-controls no-print" style="position: fixed; top: 0; left: 0; right: 0; background: #374151; color: white; padding: 10px 15px; display: flex; justify-content: space-between; align-items: center; z-index: 10000; box-shadow: 0 2px 10px rgba(0,0,0,0.2);">
                 <div style="font-size: 16px; font-weight: bold;">🖥️ 리포트 미리보기</div>
                 <div style="display:flex; gap:6px;">
                   <button onclick="shareKakao(${jsArgAttr(assignmentId)}, ${jsArgAttr(res.meta.name)}, ${jsArgAttr(res.meta.score)})" style="background: #FEE500; color: #000; ${btnStyle}">💬 카톡 공유</button>
@@ -767,32 +856,12 @@ if(loadEl) {
                   <button onclick="closePrintPreview()" style="background: #dc2626; color: white; ${btnStyle}">닫기</button>
                 </div>
               </div>
-              <div class="print-controls" style="height: 60px;"></div>
+              <div class="print-controls no-print" style="height: 60px;"></div>
             `;
         }
 
-        // 3. 표(Table) 내부 행(tr) HTML 생성
-        let tbodyHtml = '';
-        res.questions.forEach(q => {
-            const resultHtml = q.isCorrect 
-                ? `<span style="color:#059669; font-weight:bold;">O</span>`
-                : `<span style="color:#dc2626; font-weight:bold;">X</span>`;
-            const bgStyle = q.isCorrect ? '' : 'background-color:#fef2f2;';
-            
-            tbodyHtml += `
-                <tr style="border-bottom:1px solid #eee; ${bgStyle}">
-                    <td style="padding:4px;">${q.no}</td>
-                    <td style="padding:4px; text-align:left; padding-left:10px;">${q.type}</td>
-                    <td style="padding:4px; text-align:left;">${q.source}</td>
-                    <td style="padding:4px;">${q.difficulty}</td>
-                    <td style="padding:4px;">${resultHtml}</td>
-                </tr>
-            `;
-        });
-
 // [추가] 과제 제목에서 'N월 N주차' 정보만 추출
         const weekMatch = String(res.meta.title).match(/\d+월\s*\d+주차/);
-        const weekStr = weekMatch ? ` <span style="font-size:20px; font-weight:bold; color:#4b5563;">(${weekMatch[0]})</span>` : '';
 
         // [신규] 과제 제목에서 'Lv.N' 정보 추출 및 난이도 UI 동적 생성
         const levelMatch = String(res.meta.title).match(/Lv\.(\d+)/i);
@@ -813,11 +882,11 @@ if(loadEl) {
             else stageName = 'Mastery';
             
             levelUIHtml = `
-              <div style="margin: 45px 0 35px 0;">
+              <div style="margin: 38px 0 26px 0;">
                   <div style="position: relative; width: 100%; height: 12px; border-radius: 6px; background: linear-gradient(to right, #3b82f6, #10b981, #f59e0b, #ef4444); box-shadow: inset 0 1px 3px rgba(0,0,0,0.2);">
                       
                       <div style="position: absolute; left: ${percent}%; top: 50%; transform: translate(-50%, -50%); z-index: 10; display: flex; flex-direction: column; align-items: center;">
-                          <div style="position: absolute; bottom: 18px; background: #111827; color: #fff; font-size: 13px; font-weight: bold; padding: 6px 10px; border-radius: 6px; white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
+                          <div class="rp-dark" style="position: absolute; bottom: 18px; background: #111827; color: #fff; font-size: 13px; font-weight: bold; padding: 6px 10px; border-radius: 6px; white-space: nowrap; box-shadow: 0 4px 6px rgba(0,0,0,0.3);">
                               목표 난이도: Lv.${safeLevel} (${stageName})
                               <div style="position: absolute; bottom: -5px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 5px solid #111827;"></div>
                           </div>
@@ -835,97 +904,168 @@ if(loadEl) {
             `;
         }
 
-        // 4. 리포트 본문 HTML 구성 (A4 인쇄 맞춤형 CSS 및 여백/높이 축소)
+        // [유형별 결과] 이번 시험에 실제로 나온 유형만 보여 줍니다(시험마다 유형 구성이 다르므로 고정 축을 쓰지 않습니다).
+        // 누적 = 최근 주간평가(이번 포함, 최대 5회)에서 같은 유형을 합산한 정답률. 서버가 주지 않으면(옛 Code.gs) 이번 시험만 씁니다.
+        const prev = res.prev || null;
+        let typeStats = res.typeStats;
+        if (!typeStats) {
+            typeStats = {};
+            res.questions.forEach(q => { const t = q.type || '기타'; (typeStats[t] = typeStats[t] || { total: 0, correct: 0 }).total++; if (q.isCorrect) typeStats[t].correct++; });
+        }
+        const typeCum = res.typeCum || null;
+        const cumCount = res.cumCount || 0;
+        const TYPE_ORDER = ['목적','심경','주장','함축','요지','주제','제목','도표','내용일치','실용문','어법','어휘','빈칸','무관','흐름','순서','삽입','요약','장문'];
+        const typeRank = t => { if (/장문/.test(t)) return TYPE_ORDER.length - 1; const i = TYPE_ORDER.findIndex(k => String(t).indexOf(k) >= 0); return i < 0 ? 99 : i; };
+        const typeLabels = Object.keys(typeStats).sort((a, b) => typeRank(a) - typeRank(b) || a.localeCompare(b));
+        const pct = s => (s && s.total ? Math.round(s.correct / s.total * 100) : null);
+        const barColor = v => v >= 80 ? '#10b981' : v >= 50 ? '#f59e0b' : '#ef4444';
+
+        let prevScoreHtml = '';
+        if (prev) {
+            const d = res.meta.score - prev.score;
+            const col = d > 0 ? '#059669' : d < 0 ? '#dc2626' : '#6b7280';
+            const arrow = d > 0 ? '▲' : d < 0 ? '▼' : '-';
+            prevScoreHtml = `<div class="rp-prev">지난 평가(${escapeHTML(prev.date)}) ${prev.score}점 <strong style="color:${col};">${arrow}${d ? Math.abs(d) : ''}</strong></div>`;
+        }
+
+        const showCum = typeCum && cumCount > 1;
+        const typeRowsHtml = typeLabels.map(t => {
+            const s = typeStats[t], v = pct(s);
+            const cs = showCum ? typeCum[t] : null, cv = pct(cs);
+            const cumHtml = showCum ? `<span class="rp-cum">${cv == null ? '-' : cv + '%'}</span>` : '';
+            const cumMark = (showCum && cv != null) ? `<i class="rp-cum-mark" style="left:${cv}%;" title="누적 ${cv}%"></i>` : '';
+            return `<div class="rp-type-row">
+                <span class="rp-type-name">${escapeHTML(t)}</span>
+                <span class="rp-bar"><b style="width:${Math.max(v, 2)}%; background:${barColor(v)};"></b>${cumMark}</span>
+                <span class="rp-type-cnt"><b>${s.correct}</b>/${s.total}</span>
+                ${cumHtml}
+            </div>`;
+        }).join('');
+        const typeHeadHtml = `<div class="rp-type-row rp-type-head"><span class="rp-type-name">유형</span><span style="flex:1;">이번 평가 정답률</span><span class="rp-type-cnt" style="color:#6b7280;">맞힘</span>${showCum ? '<span class="rp-cum" style="color:#6b7280; font-weight:600;">누적</span>' : ''}</div>`;
+        const typeLegendHtml = `<div class="rp-legend">이번 평가에 나온 유형만 표시합니다. 막대 = 이번 평가 정답률${showCum ? ` · <i class="rp-cum-mark rp-cum-mark-inline"></i> 및 오른쪽 % = 최근 ${cumCount}회 누적 정답률` : ''}</div>`;
+
+        // 잘한 유형 / 보완할 유형 자동 요약 (이번 평가 기준)
+        const strong = typeLabels.filter(t => typeStats[t].total && typeStats[t].correct === typeStats[t].total);
+        const weak = typeLabels.filter(t => { const v = pct(typeStats[t]); return v != null && v < 50; });
+        const listOrDash = arr => arr.length ? arr.map(t => `<span class="rp-tag">${escapeHTML(t)}</span>`).join(' ') : '<span style="color:#9ca3af;">-</span>';
+        const summaryHtml = `
+            <div class="rp-sum-row"><div class="rp-sum-k" style="color:#059669;">잘한 유형</div><div>${listOrDash(strong)}</div></div>
+            <div class="rp-sum-row"><div class="rp-sum-k" style="color:#dc2626;">보완할 유형</div><div>${listOrDash(weak)}</div></div>
+            <div class="rp-sum-note">보완할 유형은 다음 주 수업과 과제에서 집중적으로 다룹니다.</div>`;
+
+        // 문항별 결과: 좌우 두 칸으로 나눠 한 장에 들어가게 합니다.
+        const qRow = q => `<tr class="${q.isCorrect ? '' : 'rp-wrong'}">
+            <td>${q.no}</td><td style="text-align:left; padding-left:8px;">${escapeHTML(q.type)}</td><td>${escapeHTML(String(q.difficulty))}</td>
+            <td>${q.isCorrect ? '<span class="rp-o">O</span>' : '<span class="rp-x">X</span>'}</td></tr>`;
+        const half = Math.ceil(res.questions.length / 2);
+        const qTable = list => `<table class="rp-qtable"><thead><tr><th style="width:14%;">번호</th><th>유형</th><th style="width:18%;">난이도</th><th style="width:16%;">결과</th></tr></thead><tbody>${list.map(qRow).join('')}</tbody></table>`;
+
+        // 4. 리포트 본문 HTML 구성 (A4 한 장)
         const reportHTML = `
           <style>
+             #reportPaper { font-family: 'Noto Sans KR', 'Malgun Gothic', sans-serif; }
+             #reportPaper .rp-sec { font-size:15px; font-weight:800; color:#1e3a5f; margin:0 0 8px; display:flex; align-items:baseline; gap:8px; }
+             #reportPaper .rp-sec:before { content:''; display:inline-block; width:4px; height:14px; background:#1e3a5f; border-radius:2px; transform:translateY(2px); }
+             #reportPaper .rp-score { background:#f1f5f9; border-radius:10px; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+             #reportPaper .rp-prev { font-size:13px; color:#4b5563; white-space:nowrap; }
+             #reportPaper .rp-types { display:grid; grid-template-columns:1fr 1fr; gap:6px 28px; }
+             #reportPaper .rp-type-head { font-size:10.5px; color:#6b7280; height:14px; border-bottom:1px solid #e5e7eb; padding-bottom:3px; }
+             #reportPaper .rp-type-head .rp-type-name { font-weight:600; color:#6b7280; }
+             #reportPaper .rp-type-row { display:flex; align-items:center; gap:8px; font-size:12.5px; height:20px; }
+             #reportPaper .rp-type-name { width:74px; flex-shrink:0; font-weight:700; color:#111827; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+             #reportPaper .rp-bar { flex:1; height:10px; background:#e5e7eb; border-radius:5px; position:relative; overflow:visible; }
+             #reportPaper .rp-bar > b { display:block; height:100%; border-radius:5px; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+             #reportPaper .rp-cum-mark { position:absolute; top:-3px; width:3px; height:16px; background:#1e3a5f; border-radius:1px; transform:translateX(-50%); -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+             #reportPaper .rp-cum-mark-inline { position:relative; display:inline-block; top:3px; height:12px; transform:none; }
+             #reportPaper .rp-type-cnt { width:34px; text-align:right; color:#6b7280; flex-shrink:0; }
+             #reportPaper .rp-type-cnt b { color:#111827; }
+             #reportPaper .rp-cum { width:36px; text-align:right; color:#1e3a5f; font-size:11px; font-weight:700; flex-shrink:0; }
+             #reportPaper .rp-legend { font-size:10.5px; color:#6b7280; margin-top:8px; }
+             #reportPaper .rp-box { border:1px solid #e5e7eb; border-radius:10px; padding:12px 14px; box-sizing:border-box; }
+             #reportPaper .rp-tag { display:inline-block; border:1px solid #d1d5db; border-radius:10px; padding:0 7px; margin:0 2px 4px 0; font-size:11.5px; background:#f9fafb; }
+             #reportPaper .rp-sum-row { display:flex; gap:10px; margin-bottom:8px; font-size:12px; }
+             #reportPaper .rp-sum-k { width:70px; flex-shrink:0; font-weight:800; padding-top:2px; }
+             #reportPaper .rp-sum-note { font-size:11px; color:#6b7280; border-top:1px dashed #e5e7eb; padding-top:8px; margin-top:4px; }
+             #reportPaper .rp-qtable { width:100%; border-collapse:collapse; font-size:12px; text-align:center; }
+             #reportPaper .rp-qtable thead tr { background:#f1f5f9; border-top:2px solid #1e3a5f; border-bottom:1px solid #1e3a5f; height:26px; }
+             #reportPaper .rp-qtable tbody tr { border-bottom:1px solid #eee; height:22px; }
+             #reportPaper .rp-qtable tr.rp-wrong { background:#fef2f2; }
+             #reportPaper .rp-o { color:#059669; font-weight:900; }
+             #reportPaper .rp-x { color:#dc2626; font-weight:900; }
              @media print {
                  @page { size: A4; margin: 10mm; }
                  body, html { margin: 0; padding: 0; }
                  #printSection { overflow: hidden !important; }
-                 #reportPaper { margin: 0 !important; box-shadow: none !important; width: 100% !important; height: 100% !important; page-break-after: avoid; }
+                 #reportPaper { margin: 0 !important; box-shadow: none !important; width: 190mm !important; height: 277mm !important; padding: 0 !important; overflow: hidden !important; page-break-after: avoid; page-break-inside: avoid; }
+                 /* print.css가 모든 글자를 검정으로 바꾸므로 어두운 바탕 위 글자는 흰색으로 되돌립니다 */
+                 #printSection #reportPaper .rp-head-band, #printSection #reportPaper .rp-head-band *,
+                 #printSection #reportPaper .rp-dark, #printSection #reportPaper .rp-dark * { color: #fff !important; }
+                 #printSection #reportPaper * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+                 #printSection #reportPaper .rp-o { color: #059669 !important; }
+                 #printSection #reportPaper .rp-x { color: #dc2626 !important; }
              }
           </style>
           <div id="reportPaper" style="background:#fff; width:210mm; height:297mm; padding:10mm; margin:20px auto; box-shadow:0 0 20px rgba(0,0,0,0.2); position:relative; box-sizing:border-box; color:#111827; overflow:hidden;">
-              
-              <div style="border-bottom:3px solid #111827; padding-bottom:8px; display:flex; justify-content:space-between; align-items:flex-end;">
+            <div id="rpInner" style="transform-origin:top left;">
+
+              <div class="rp-head-band" style="background:#1e3a5f; border-radius:10px; padding:14px 20px; display:flex; justify-content:space-between; align-items:center; color:#fff;">
                   <div>
-                      <div style="font-size:26px; font-weight:900; letter-spacing:-1px;">주간 학습 리포트${weekStr}</div>
+                      <div style="font-size:11px; font-weight:700; letter-spacing:3px; opacity:.8;">K2 WEEKLY REPORT</div>
+                      <div style="font-size:25px; font-weight:900; letter-spacing:-1px; margin-top:2px;">주간 학습 리포트${weekMatch ? ` <span style="font-size:17px; font-weight:700; opacity:.85;">${escapeHTML(weekMatch[0])}</span>` : ''}</div>
                   </div>
                   <div style="text-align:right;">
-                      <div style="font-size:26px; font-weight:900;">${res.meta.name}</div>
+                      <div style="font-size:11px; opacity:.8;">${escapeHTML(res.meta.date || '')}</div>
+                      <div style="font-size:25px; font-weight:900;">${escapeHTML(res.meta.name)}</div>
                   </div>
               </div>
 
-              ${levelUIHtml}
+              ${levelUIHtml || '<div style="height:18px;"></div>'}
 
-              <div style="background:#f3f4f6; border-radius:8px; padding:12px 20px; display:flex; justify-content:space-between; align-items:center; margin-bottom:15px;">
-                  <div style="font-size:18px; font-weight:bold; color:#374151;">이번 주 성취도</div>
-                  <div style="display:flex; align-items:baseline; gap:15px;">
-                      <div style="font-size:15px; color:#4b5563;">맞은 개수: <strong style="color:#111827;">${res.meta.correctCount}</strong> / ${res.meta.totalCount}</div>
-                      <div style="font-size:26px; font-weight:900; color:#2563eb;">${res.meta.score}점</div>
+              <div class="rp-score">
+                  <div style="font-size:17px; font-weight:800; color:#1e3a5f;">이번 주 성취도</div>
+                  <div style="display:flex; align-items:baseline; gap:16px;">
+                      <div style="font-size:14px; color:#4b5563;">맞은 개수 <strong style="color:#111827;">${res.meta.correctCount}</strong> / ${res.meta.totalCount}</div>
+                      <div style="font-size:30px; font-weight:900; color:#2563eb;">${res.meta.score}<span style="font-size:16px;">점</span></div>
+                      ${prevScoreHtml}
                   </div>
               </div>
 
-              <div style="display:flex; justify-content:space-between; gap:20px; margin-bottom:15px; height:200px; page-break-inside: avoid;">
-                  <div style="border:1px solid #e5e7eb; border-radius:8px; padding:10px; width:48%; display:flex; flex-direction:column; box-sizing:border-box;">
-                      <div style="font-size:14px; font-weight:bold; margin-bottom:5px; text-align:center; color:#111827;">📊 영역별 정답률</div>
-                      <div style="flex:1; position:relative; min-height:0;">
-                          <canvas id="chartRadar"></canvas>
-                      </div>
+              <div style="margin-bottom:18px;">
+                  <div class="rp-sec">유형별 결과</div>
+                  <div class="rp-box">
+                      <div class="rp-types">${typeHeadHtml}${typeLabels.length > 1 ? typeHeadHtml : ''}${typeRowsHtml}</div>
+                      ${typeLegendHtml}
                   </div>
-                  <div style="border:1px solid #e5e7eb; border-radius:8px; padding:10px; width:48%; display:flex; flex-direction:column; box-sizing:border-box;">
-                      <div style="font-size:14px; font-weight:bold; margin-bottom:5px; text-align:center; color:#111827;">📈 최근 5주 성적 변화</div>
-                      <div style="flex:1; position:relative; min-height:0;">
-                          <canvas id="chartLine"></canvas>
-                      </div>
+              </div>
+
+              <div style="display:flex; gap:16px; margin-bottom:18px; align-items:stretch;">
+                  <div class="rp-box" style="width:55%;">
+                      <div class="rp-sec" style="margin-bottom:4px;">최근 성적 변화</div>
+                      <div style="height:150px; position:relative;"><canvas id="chartLine"></canvas></div>
+                  </div>
+                  <div class="rp-box" style="width:45%;">
+                      <div class="rp-sec">이번 주 한눈에 보기</div>
+                      ${summaryHtml}
                   </div>
               </div>
 
               <div>
-                  <div style="font-size:15px; font-weight:bold; margin-bottom:8px; border-left:4px solid #2563eb; padding-left:10px;">문항별 상세 분석</div>
-                  <table style="width:100%; border-collapse:collapse; font-size:12px; text-align:center;">
-                      <thead style="background:#f9fafb; border-top:2px solid #374151; border-bottom:1px solid #374151;">
-                          <tr style="height:30px;">
-                              <th style="width:10%;">번호</th>
-                              <th style="width:25%;">유형</th>
-                              <th style="width:35%;">출처</th>
-                              <th style="width:15%;">난이도</th>
-                              <th style="width:15%;">결과</th>
-                          </tr>
-                      </thead>
-                      <tbody>
-                          ${tbodyHtml}
-                      </tbody>
-                  </table>
+                  <div class="rp-sec">문항별 결과</div>
+                  <div style="display:flex; gap:16px; align-items:flex-start;">
+                      <div style="flex:1;">${qTable(res.questions.slice(0, half))}</div>
+                      <div style="flex:1;">${qTable(res.questions.slice(half))}</div>
+                  </div>
               </div>
+            </div>
           </div>
         `;
 
         // 5. 생성한 HTML을 화면(printSection)에 투입
         printZone.innerHTML = controlsHTML + reportHTML;
 
-        // 6. 차트 그리기 (HTML이 문서에 들어간 직후 실행)
-        if(chartRadarInst) chartRadarInst.destroy();
+        // 6. 최근 성적 변화 그래프
+        if(chartRadarInst) { chartRadarInst.destroy(); chartRadarInst = null; }
         if(chartLineInst) chartLineInst.destroy();
-
-        const ctxRadar = document.getElementById('chartRadar').getContext('2d');
-        chartRadarInst = new Chart(ctxRadar, {
-            type: 'radar',
-            data: {
-                labels: ['빈칸/추론', '논리/흐름', '대의파악', '어법/어휘', '세부/장문'],
-                datasets: [{
-                    label: '나의 정답률 (%)',
-                    data: res.radar,
-                    backgroundColor: 'rgba(37, 99, 235, 0.2)',
-                    borderColor: 'rgba(37, 99, 235, 1)',
-                    pointBackgroundColor: '#fff',
-                    pointBorderColor: '#2563eb',
-                    borderWidth: 2
-                }]
-            },
-            options: { animation: false, responsive: true, maintainAspectRatio: false, scales: { r: { angleLines: { color: '#e5e7eb' }, grid: { color: '#e5e7eb' }, pointLabels: { font: { size: 12, weight: 'bold', family:"'Noto Sans KR'" }, color: '#111827' }, suggestedMin: 0, suggestedMax: 100, ticks: { stepSize: 20, display: false } } }, plugins: { legend: { display: false } } }
-        });
-
         const ctxLine = document.getElementById('chartLine').getContext('2d');
         chartLineInst = new Chart(ctxLine, {
             type: 'line',
@@ -934,11 +1074,14 @@ if(loadEl) {
                 datasets: [{
                     label: '점수',
                     data: res.trend.map(t => t.score),
-                    borderColor: '#10b981', backgroundColor: '#10b981', borderWidth: 2, tension: 0.1, pointRadius: 4
+                    borderColor: '#1e3a5f', backgroundColor: '#1e3a5f', borderWidth: 2, tension: 0.1, pointRadius: 4
                 }]
             },
             options: { animation: false, responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true, max: 100, grid: { borderDash: [2, 2] } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
         });
+
+        // 7. 한 장 맞춤: 유형·문항이 많아 A4(여백 제외 277mm)를 넘으면 내용 전체를 비율대로 줄입니다.
+        fitReportToOnePage();
 
     }).withFailureHandler(err => {
         if(loadEl) loadEl.classList.remove('active');
