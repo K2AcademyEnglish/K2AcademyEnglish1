@@ -2113,3 +2113,6 @@ html body #selectPage.panel .sf-type input { width: 17px !important; height: 17p
 #weeklyMakerPage .wk-table thead th { background: #e8eef5; color: #1e3a5f; }
 /* 상단 메뉴: 주간평가 탭만 남색, 나머지 탭은 기존 파란색 그대로 */
 .top-tab#topTabAdminWeekly.active { background: #1e3a5f; border-color: #1e3a5f; color: #fff; }
+
+/* ===================== 문항 이미지 태그 <image>: 어느 화면에서나 가운데 정렬 ===================== */
+img.qimg { display: block !important; margin: 6px auto !important; max-width: 100% !important; height: auto !important; }
