@@ -981,6 +981,7 @@ const QB_TAGS = [
   { act: 'blank', label: '빈칸 ___', title: '빈칸 밑줄 넣기' },
   { act: 'arrow', label: '⇩', title: '요약문 화살표 <c>⇩</c>' },
   { act: 'img', label: '🖼 이미지', title: '이미지 주소 또는 구글 드라이브 파일 ID 넣기' },
+  { act: 'qimg', label: '🖼 img폴더', title: '사이트 img 폴더의 그림 <image> — 이 문항 ID와 같은 이름의 jpg (변형 문항은 없으면 원본 그림)' },
   { act: 'circ', label: '①~⑤', title: '원문자 넣기' },
   { act: 'strip', label: '태그 지우기', title: '고른 부분의 태그를 모두 지웁니다' }
 ];
@@ -1358,6 +1359,8 @@ function qbRenderForm() {
       <code>&lt;c&gt;가운데&lt;/c&gt;</code> <code>&lt;r&gt;오른쪽&lt;/r&gt;</code> <code>&lt;box&gt;상자&lt;/box&gt;</code> <code>&lt;sup&gt;</code> <code>&lt;sub&gt;</code><br>
       표: <code>&lt;table&gt;</code> 다음 줄부터 한 줄에 한 행, 칸은 <code>|</code>로 나눕니다. 칸 안 줄바꿈은 <code>;;</code>, 위 칸과 합치려면 칸을 비워 둡니다.<br>
       이미지: <code>&lt;c&gt;https://…jpg&lt;/c&gt;</code> 또는 <code>drive:구글드라이브파일ID</code><br>
+      img 폴더 그림: <code>&lt;image&gt;</code> = 이 문항 ID와 같은 이름의 jpg (<code>img/h1_24_03_21.jpg</code>). 변형 문항(<code>_GC001</code> 등)은 그 파일이 없으면 원본 그림을 씁니다.<br>
+      &nbsp;&nbsp;다른 파일: <code>&lt;image:파일이름&gt;</code> → <code>img/파일이름.jpg</code>, 확장자를 적으면 그대로(<code>&lt;image:chart.png&gt;</code>). 파일 이름은 영문·숫자·<code>_ - .</code>만 됩니다.<br>
       질문에 <code>&lt;box&gt;…&lt;/box&gt;</code>를 넣으면 질문 아래 네모 상자로 따로 보입니다.</div>
     </details>
     <datalist id="qbTypeList">${qbTypeOptions()}</datalist>
@@ -1447,7 +1450,7 @@ function qbRenderPreview() {
   const w = key != null ? (QB.work[key] || qbOrig(key)) : null;
   if (!w) { box.innerHTML = '<div class="qb-empty">문항을 고르면 여기에 보입니다.</div>'; return; }
   // 연결 칸은 시트에 저장된 계산 값(원본)으로 보여 줍니다.
-  const val = r => qbVal(key, r);
+  const val = r => (r >= 5 && r <= 16) ? qimgBind(qbVal(key, r), qbVal(key, 0)) : qbVal(key, r); // <image> 태그를 이 문항 ID로
   const q = { question: val(5), box1: val(6), box2: val(7), box3: val(8), box4: val(9), options: [10, 11, 12, 13, 14].map(val), type: val(2) };
   let html = '';
   if (QB.prevMode === 'print') {
@@ -1479,7 +1482,7 @@ function qbRenderPreview() {
 // 과제 출제 인쇄(print-report.js renderQuestionsForPrint)와 같은 마크업으로 한 문항(장문이면 묶음 전체)을 그립니다.
 function qbPrintHtml(key) {
   const cur = QB.work[key] || qbOrig(key);
-  const valOf = (k, r) => qbVal(k, r);
+  const valOf = (k, r) => (r >= 5 && r <= 16) ? qimgBind(qbVal(k, r), qbVal(k, 0)) : qbVal(k, r); // <image> 태그를 이 문항 ID로
   // 같은 지문을 쓰는 묶음(연계): 연계 칸이 가리키는 첫 문항 ID 기준
   const myId = valOf(key, 0), head = String(valOf(key, 3) || '').trim() || myId;
   let members = qbListItems().map(it => it.key).filter(k => {
@@ -1592,6 +1595,7 @@ function qbToolAct(act, btn) {
     });
   } else if (act === 'blank') qbReplaceSel(el, () => ({ text: '______________' }));
   else if (act === 'arrow') qbReplaceSel(el, () => ({ text: '<c>⇩</c>' }));
+  else if (act === 'qimg') qbReplaceSel(el, sel => ({ text: /^[A-Za-z0-9_.\-]+$/.test(String(sel || '').trim()) ? '<image:' + String(sel).trim() + '>' : '<image>' }));
   else if (act === 'strip') qbReplaceSel(el, sel => ({ text: sel.replace(/<\/?[a-zA-Z][^>]*>/g, ''), selStart: 0, selEnd: sel.replace(/<\/?[a-zA-Z][^>]*>/g, '').length }));
   else if (act === 'circ' || act === 'img') qbOpenToolPop(act, btn);
 }
