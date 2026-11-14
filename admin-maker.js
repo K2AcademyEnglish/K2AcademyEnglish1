@@ -2063,6 +2063,16 @@ function _wkIncludeDesc() {
     return !el || el.checked;
 }
 function _wkIsDesc(row) { return String((row && row.type) || '').includes('서술형'); }
+// 원본 문항 ID: h1_24_03_21_GC001 / h1_24_03_21_BH001 → h1_24_03_21 (앞 네 마디)
+function _wkOriginId(row) {
+    const id = String((row && (row.number || row.qid)) || '').trim();
+    const p = id.split('_');
+    return p.length > 4 ? p.slice(0, 4).join('_') : id;
+}
+function _wkNoSameOrigin() {
+    const el = document.getElementById('chkWkNoSameOrigin');
+    return !el || el.checked;
+}
 function onWkDescToggle() {
     if (!_wkIncludeDesc()) {
         let n = 0;
@@ -2153,7 +2163,8 @@ function runWeeklyAutoSelection() {
     groups.forEach(items => {
         if (!items.every(r => poolIds.has(String(r.qid)))) return;
         const diff = Math.round(items.reduce((a, r) => a + _wkDiff(r), 0) / items.length);
-        cands.push({ items: items, size: items.length, diff: diff, weak: items.some(r => _wkIsWeak(r, weak)), rnd: Math.random() });
+        cands.push({ items: items, size: items.length, diff: diff, weak: items.some(r => _wkIsWeak(r, weak)), rnd: Math.random(),
+                     origins: [...new Set(items.map(_wkOriginId))] });
     });
 
     const need = {};
@@ -2166,7 +2177,12 @@ function runWeeklyAutoSelection() {
     const picked = [];
     let total = 0;
     const used = new Set();
-    const take = c => { used.add(c); picked.push(c); total += c.size; };
+    // 같은 원본(기출·변형) 겹치지 않게: 이미 뽑은 원본과 겹치는 세트는 1·2차에서 건너뜁니다.
+    const noSameOrigin = _wkNoSameOrigin();
+    const usedOrigins = new Set();
+    const clash = c => noSameOrigin && c.origins.some(o => usedOrigins.has(o));
+    let overlapFill = 0;
+    const take = c => { used.add(c); picked.push(c); total += c.size; c.origins.forEach(o => usedOrigins.add(o)); };
     const byPref = (a, b) => (b.weak - a.weak) || (a.size - b.size) || (a.rnd - b.rnd);
 
     // 1차: 난이도별 필요 수만큼 (중심 난이도부터)
@@ -2174,13 +2190,19 @@ function runWeeklyAutoSelection() {
         .filter((l, i, arr) => arr.indexOf(l) === i)
         .forEach(l => {
             cands.filter(c => c.diff === l && !used.has(c)).sort(byPref).forEach(c => {
-                if (need[l] >= c.size && total + c.size <= WK_TARGET) { take(c); need[l] -= c.size; }
+                if (need[l] >= c.size && total + c.size <= WK_TARGET && !clash(c)) { take(c); need[l] -= c.size; }
             });
         });
     // 2차: 모자라면 중심 난이도에 가까운 순으로 채움
     cands.filter(c => !used.has(c))
         .sort((a, b) => (Math.abs(a.diff - targetLevel) - Math.abs(b.diff - targetLevel)) || byPref(a, b))
-        .forEach(c => { if (total + c.size <= WK_TARGET) take(c); });
+        .forEach(c => { if (total + c.size <= WK_TARGET && !clash(c)) take(c); });
+    // 3차: 겹치지 않는 문항만으로 20문항이 안 되면, 그때만 겹치는 문항으로 채웁니다(되도록 안 겹치게).
+    if (noSameOrigin && total < WK_TARGET) {
+        cands.filter(c => !used.has(c))
+            .sort((a, b) => (Math.abs(a.diff - targetLevel) - Math.abs(b.diff - targetLevel)) || byPref(a, b))
+            .forEach(c => { if (total + c.size <= WK_TARGET) { take(c); overlapFill += c.size; } });
+    }
 
     WK_SEL.clear();
     picked.forEach(c => c.items.forEach(r => WK_SEL.add(String(r.qid))));
@@ -2199,6 +2221,8 @@ function runWeeklyAutoSelection() {
         if (excludeSolved) why.push('안 푼 문제만');
         if (noDesc) why.push('서술형 빼기');
         showToast(`범위 안 문항이 부족해 ${total}문항만 골랐습니다.` + (why.length ? ` (${why.join(', ')} 조건을 풀거나 범위를 넓혀 보십시오)` : ' 범위를 넓혀 보십시오.'), 'error');
+    } else if (overlapFill) {
+        showToast(`${total}문항을 골랐습니다. 겹치지 않는 문항이 모자라 같은 원본(기출·변형) ${overlapFill}문항이 함께 들어갔습니다.`, 'error');
     } else {
         showToast(`${total}문항을 골랐습니다. 표에서 확인하고 바꿀 수 있습니다.`);
     }

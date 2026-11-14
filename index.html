@@ -11,11 +11,11 @@
   <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
   <link rel="apple-touch-icon" href="https://i.imgur.com/NVHBqH2.png">
   <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
-  <link rel="stylesheet" href="style.css?v=20261113d">
-  <link rel="stylesheet" href="print.css?v=20261113d">
-  <link rel="stylesheet" href="notice-points.css?v=20261113d">
-  <link rel="stylesheet" href="ink.css?v=20261113d">
-  <link rel="stylesheet" href="qbank.css?v=20261113d">
+  <link rel="stylesheet" href="style.css?v=20261114a">
+  <link rel="stylesheet" href="print.css?v=20261114a">
+  <link rel="stylesheet" href="notice-points.css?v=20261114a">
+  <link rel="stylesheet" href="ink.css?v=20261114a">
+  <link rel="stylesheet" href="qbank.css?v=20261114a">
 </head>
 
 <body>
@@ -302,6 +302,7 @@
       <p class="wk-hint">중심 난이도 ±2단계에서 2·4·8·4·2개, 모두 20문항을 고릅니다.</p>
       <label class="wk-opt"><input type="checkbox" id="chkWkSkipRecent" checked> 최근 4주 안에 배부한 문항 빼기</label>
       <label class="wk-opt"><input type="checkbox" id="chkWkIncludeDesc" checked onchange="onWkDescToggle()"> 서술형 포함</label>
+      <label class="wk-opt" title="예: h1_24_03_21 (기출)과 h1_24_03_21_GC001, h1_24_03_21_BH001 (변형)은 같은 원본으로 봅니다"><input type="checkbox" id="chkWkNoSameOrigin" checked> 같은 원본(기출·변형) 겹치지 않게</label>
       <button type="button" class="wk-auto-btn" onclick="runWeeklyAutoSelection()">⚡ 20문항 자동 선택</button>
     </aside>
 
@@ -667,15 +668,15 @@ border-top: 2px solid #2b6cb0;">
   </div>
 </div>
 
-  <script src="qrcode.js?v=20261113d"></script>
-  <script src="api-utils.js?v=20261113d"></script>
-  <script src="notice-points.js?v=20261113d"></script>
-  <script src="vocab.js?v=20261113d"></script>
-  <script src="student-quiz.js?v=20261113d"></script>
-  <script src="ink.js?v=20261113d"></script>
-  <script src="admin-maker.js?v=20261113d"></script>
-  <script src="qbank.js?v=20261113d"></script>
-  <script src="print-report.js?v=20261113d"></script>
-  <script src="app-core.js?v=20261113d"></script>
+  <script src="qrcode.js?v=20261114a"></script>
+  <script src="api-utils.js?v=20261114a"></script>
+  <script src="notice-points.js?v=20261114a"></script>
+  <script src="vocab.js?v=20261114a"></script>
+  <script src="student-quiz.js?v=20261114a"></script>
+  <script src="ink.js?v=20261114a"></script>
+  <script src="admin-maker.js?v=20261114a"></script>
+  <script src="qbank.js?v=20261114a"></script>
+  <script src="print-report.js?v=20261114a"></script>
+  <script src="app-core.js?v=20261114a"></script>
 </body>
 </html>
