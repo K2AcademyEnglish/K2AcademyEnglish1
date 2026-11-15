@@ -1820,7 +1820,7 @@ function qbNewSheetDialog() {
       <div class="qb-ns-src">
         <input type="text" id="qbNsSrc" placeholder="예: 고3 2024 수능">
       </div>
-      <label class="qb-check qb-mt"><input type="checkbox" id="qbNsFrame" checked> 번호 틀 미리 만들기</label>
+      <label class="qb-check qb-mt"><input type="checkbox" id="qbNsFrame"> 번호 틀 미리 만들기</label>
       <div class="qb-ns-frame">
         <input type="number" id="qbNsFrom" value="18" min="1" max="99"> ~ <input type="number" id="qbNsTo" value="45" min="1" max="99"> 번
         <label class="qb-check"><input type="checkbox" id="qbNsTypes" checked> 모의고사 기본 유형 넣기</label>
