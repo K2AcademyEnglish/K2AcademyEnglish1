@@ -373,7 +373,7 @@ function startQuizEntry(){
            showCustomAlert('로그인 실패: ' + (res.error || '알 수 없는 오류'));
            return;
         }
-        const { managedStudents, passwordCreated, ...user } = res;
+        const { managedStudents, passwordCreated, home, ...user } = res;
         if (passwordCreated) showToast('관리자 비밀번호가 등록되었습니다.', 'success');
         CURRENT_USER = user;
         const keepChk = document.getElementById('keepLoginChk');
@@ -386,6 +386,8 @@ function startQuizEntry(){
             }));
             
             syncLoginUI();
+        // 로그인 응답에 같이 온 공지를 바로 표시 (메인 화면과 동시에)
+        if (home && window.NP && typeof NP.prime === 'function') NP.prime(home);
         document.getElementById('mainTabs').style.display = 'flex';
 
         if(user.role === 'manager') {

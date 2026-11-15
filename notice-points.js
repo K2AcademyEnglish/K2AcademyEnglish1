@@ -21,8 +21,35 @@
     sel: new Set(), nsel: new Set(),
     form: { amount: '', reason: '' },
     notice: { target: 'managed', title: '', body: '', important: false, days: DEFAULT_NOTICE_DAYS },
-    popupShown: new Set()
+    popupShown: new Set(), initTimer: null
   };
+
+  /* ---------- 공지 미리 보관 ----------
+   * 마지막으로 받은 공지·포인트를 이 기기에 저장해 두고, 다음 접속 때 서버 응답을 기다리지 않고 먼저 보여 줍니다.
+   * (최신 내용은 바로 이어서 서버에서 다시 받아 바꿉니다)
+   */
+  const homeCacheKey = id => 'k2_np_home:' + id;
+  function saveHomeCache() {
+    const u = me();
+    if (!u || isManager() || !S.home) return;
+    try { localStorage.setItem(homeCacheKey(u.id), JSON.stringify(S.home)); } catch (e) {}
+  }
+  function loadHomeCache(id) {
+    try { const v = JSON.parse(localStorage.getItem(homeCacheKey(id)) || 'null'); return v && Array.isArray(v.notices) ? v : null; } catch (e) { return null; }
+  }
+  function clearHomeCache(id) { try { localStorage.removeItem(homeCacheKey(id)); } catch (e) {} }
+
+  // 로그인 응답에 같이 온 공지로 바로 화면을 채웁니다. (서버를 다시 부르지 않음)
+  function prime(home) {
+    const u = me();
+    if (!u || isManager() || !home || !Array.isArray(home.notices)) return;
+    if (S.initTimer) { clearTimeout(S.initTimer); S.initTimer = null; }
+    S.home = home;
+    saveHomeCache();
+    setBadge(home.unread);
+    renderHomeCard();
+    showImportantPopup();
+  }
 
   /* ---------- 공통 도구 ---------- */
   const esc = v => String(v == null ? '' : v)
@@ -171,6 +198,7 @@
     return call('getStudentHome', [u.id]).then(data => {
       if (key !== S.userKey) return;
       S.home = data;
+      saveHomeCache();
       setBadge(data.unread);
       renderHomeCard();
       if (isOpen() && S.tab === 'notices') render();
@@ -186,6 +214,10 @@
     const key = u ? (u.id + '|' + u.role) : '';
     if (key === S.userKey) return;
 
+    // 로그아웃·계정 전환: 이전 학생의 보관 공지는 지웁니다(같은 기기를 여럿이 쓰는 경우 대비).
+    const prevId = S.userKey.split('|')[0];
+    if (prevId && (!u || prevId !== u.id)) clearHomeCache(prevId);
+    if (S.initTimer) { clearTimeout(S.initTimer); S.initTimer = null; }
     S.userKey = key;
     S.home = null; S.admin = null; S.myPoints = null; S.sent = null; S.perf = null; S.scope = 'mine';
     S.sel.clear(); S.nsel.clear(); S.popupShown.clear();
@@ -196,7 +228,13 @@
     renderHomeCard();
     if (S.timer) { clearInterval(S.timer); S.timer = null; }
     if (u) {
-      setTimeout(() => { refresh().catch(() => {}); }, 400);
+      // 보관해 둔 공지가 있으면 서버 응답 전에 먼저 보여 줍니다. (중요 공지 팝업은 최신 내용으로만 띄움)
+      if (!isManager()) {
+        const cached = loadHomeCache(u.id);
+        if (cached) { S.home = cached; setBadge(cached.unread); renderHomeCard(); }
+      }
+      // 기다리지 않고 바로 최신 공지를 요청합니다. (로그인 응답에 공지가 같이 오면 prime()이 이 요청을 취소)
+      S.initTimer = setTimeout(() => { S.initTimer = null; refresh().catch(() => {}); }, 0);
       S.timer = setInterval(() => { if (!document.hidden) refresh().catch(() => {}); }, REFRESH_MS);
     }
   }
@@ -231,6 +269,7 @@
     S.home.unread = S.home.notices.filter(n => !n.read).length;
     setBadge(S.home.unread);
     renderHomeCard();
+    saveHomeCache();
     call('markNoticesRead', [u.id, ids]).catch(() => {});
   }
 
@@ -798,5 +837,5 @@
   // 다른 탭에 있다가 돌아오면 새 알림 확인
   document.addEventListener('visibilitychange', () => { if (!document.hidden && me()) refresh().catch(() => {}); });
 
-  window.NP = { askPassword: askPassword, onAuthChange: onAuthChange, open: openModal, close: closeModal, refresh: refresh };
+  window.NP = { askPassword: askPassword, onAuthChange: onAuthChange, open: openModal, close: closeModal, refresh: refresh, prime: prime };
 })();
