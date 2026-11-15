@@ -174,6 +174,7 @@
         </div>
         <button type="button" class="np-btn np-btn-gold" data-np="open:points">교환권 신청 · 내역</button>
       </div>
+      ${(h.tarot && h.tarot.on && window.K2Tarot) ? `<button type="button" class="np-tarot-btn" data-tarot-open>🔮 오늘의 타로 <small>${num(h.tarot.cost)}pt</small></button>` : ''}
       ${latest ? `<button type="button" class="np-home-notice ${latest.read ? '' : 'unread'}" data-np="open:notices">
           <span>${latest.important ? '📌' : '📢'}</span>
           <span class="np-home-notice-title">${esc(latest.title)}</span>
