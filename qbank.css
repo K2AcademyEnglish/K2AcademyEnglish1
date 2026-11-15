@@ -235,8 +235,8 @@ html body #qbankPage button.qb-x { width: 32px !important; height: 32px !importa
 #qbankPage .qb-imp-pane { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; overflow: hidden; }
 #qbankPage .qb-imp-pane[hidden] { display: none; }
 #qbankPage .qb-imp-pane > .qb-modal-body { flex: 1 1 auto; overflow: auto; }
-#qbankPage .qb-modal-box[data-tab] { width: min(860px, 100%); }
-#qbankPage .qb-modal-box[data-tab="q"] { width: min(1180px, 100%); }
+/* 가져오기 창은 탭(문제·정답해설·난이도)을 바꿔도 크기가 같도록 '문제' 탭 크기로 고정 */
+#qbankPage .qb-modal-box[data-tab] { width: min(1180px, 100%); height: min(840px, calc(100vh - 32px)); }
 #qbankPage .qb-key-manual { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 10px; }
 #qbankPage .qb-key-manual summary { cursor: pointer; font-weight: 700; color: #475569; }
 #qbankPage .qb-key-manual[open] summary { margin-bottom: 8px; }
@@ -248,3 +248,12 @@ html body #qbankPage button.qb-x { width: 32px !important; height: 32px !importa
 #qbankPage .qb-ns-src { display: flex; gap: 6px; align-items: center; }
 #qbankPage .qb-ns-src input { flex: 1 1 auto; min-width: 0; }
 #qbankPage .qb-srcbar[hidden] { display: none; }
+
+/* PDF 끌어다 놓기: 창 위에 파일을 올리면 파란 테두리와 안내 */
+#qbankPage .qb-modal-box[data-tab] { position: relative; }
+#qbankPage .qb-modal-box.qb-drag-over::after {
+  content: '여기에 PDF를 놓으면 읽습니다'; position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(239, 246, 255, .88); border: 3px dashed #3b82f6; border-radius: 12px;
+  color: #1d4ed8; font-size: 22px; font-weight: 800; pointer-events: none;
+}

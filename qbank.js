@@ -1894,7 +1894,7 @@ function qbPastePaneHtml() {
         <div class="qb-pdf-row">
           <button type="button" class="qb-btn qb-btn-primary" data-qb="pdf-pick">📄 문제 PDF 고르기</button>
           <input type="file" id="qbPdfFile" accept="application/pdf,.pdf" hidden>
-          <span class="qb-muted">기울임·밑줄·빈칸·각주·문단까지 살려서 읽습니다 (복사보다 정확).</span>
+          <span class="qb-muted">기울임·밑줄·빈칸·각주·문단까지 살려서 읽습니다 (복사보다 정확). <b>PDF를 이 창에 끌어다 놓아도 됩니다.</b></span>
         </div>
         <div id="qbPdfStatus" class="qb-muted"></div>
         <label class="qb-label" for="qbPasteText">시험지 내용 (PDF 파일이 없으면 한글·PDF에서 복사해 넣기)</label>
@@ -1984,7 +1984,7 @@ function qbKeyPaneHtml() {
       <div class="qb-pdf-row">
         <button type="button" class="qb-btn qb-btn-primary" data-qb="key-pick">📄 해설지 PDF 고르기</button>
         <input type="file" id="qbKeyFile" accept="application/pdf,.pdf" hidden>
-        <span id="qbKeyStatus" class="qb-muted">정답표와 "18. [출제의도] …" 해설을 문항 번호에 맞춰 넣습니다.</span>
+        <span id="qbKeyStatus" class="qb-muted">정답표와 "18. [출제의도] …" 해설을 문항 번호에 맞춰 넣습니다. <b>PDF를 이 창에 끌어다 놓아도 됩니다.</b></span>
       </div>
       ${variant ? '<div class="qb-warn">변형 문항 시트입니다. 원문 해설지와 내용이 다를 수 있어 처음에는 모두 선택 해제해 둡니다.</div>' : ''}
       <div class="qb-key-opts">
@@ -2173,12 +2173,55 @@ function qbBulkApply(field) {
   showToast(`${ok.length}문항의 ${field === 4 ? '난이도' : '정답'}를 채웠습니다. 확인한 뒤 [모두 저장]을 누르세요.`, 'info');
 }
 
+/* ---------- PDF 끌어다 놓기 ----------
+ * 가져오기 창 아무 곳에나 PDF를 끌어다 놓으면 지금 보고 있는 탭에 맞게 읽습니다.
+ *  - [문제] 탭: 문제 PDF로 읽음 (해설지면 자동으로 [정답·해설] 탭으로 넘김)
+ *  - [정답·해설] 탭: 해설지 PDF로 읽음
+ *  - [난이도] 탭: 문제 탭으로 옮겨서 문제 PDF로 읽음
+ */
+function qbDragHasFile(e) {
+  const t = e.dataTransfer && e.dataTransfer.types;
+  return !!t && Array.from(t).indexOf('Files') !== -1;
+}
+function qbBindPdfDrop(page) {
+  let depth = 0;
+  const box = () => document.querySelector('#qbModal:not([hidden]) .qb-modal-box[data-tab]');
+  const setOver = on => { const b = box(); if (b) b.classList.toggle('qb-drag-over', on); };
+  page.addEventListener('dragenter', e => {
+    if (!qbDragHasFile(e) || !box() || !e.target.closest('#qbModal')) return;
+    e.preventDefault(); depth++; setOver(true);
+  });
+  page.addEventListener('dragover', e => {
+    if (!qbDragHasFile(e) || !e.target.closest('#qbModal')) return;
+    e.preventDefault(); // 브라우저가 PDF를 새 탭으로 열지 않게
+    if (e.dataTransfer) e.dataTransfer.dropEffect = box() ? 'copy' : 'none';
+  });
+  page.addEventListener('dragleave', e => {
+    if (!qbDragHasFile(e) || !e.target.closest('#qbModal')) return;
+    depth = Math.max(0, depth - 1); if (!depth) setOver(false);
+  });
+  page.addEventListener('drop', e => {
+    if (!qbDragHasFile(e) || !e.target.closest('#qbModal')) return;
+    e.preventDefault(); depth = 0; setOver(false);
+    const b = box();
+    if (!b) return;
+    const files = Array.from(e.dataTransfer.files || []);
+    const pdf = files.find(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+    if (!pdf) { showToast('PDF 파일만 넣을 수 있습니다.', 'error'); return; }
+    if (files.length > 1) showToast('PDF는 한 번에 하나씩 읽습니다. 첫 번째 파일만 읽었습니다.', 'info');
+    const tab = b.dataset.tab;
+    if (tab === 'key') qbKeyLoad(pdf);
+    else { if (tab !== 'q') qbImportTab('q'); qbPdfLoad(pdf); }
+  });
+}
+
 /* ---------- 이벤트 ---------- */
 function qbBind() {
   if (QB.bound) return;
   const page = document.getElementById('qbankPage');
   if (!page) return;
   QB.bound = true;
+  qbBindPdfDrop(page);
   page.addEventListener('change', e => {
     if (e.target.id === 'qbSheetSelect') qbOpenSheet(e.target.value);
     if (e.target.id === 'qbShowAns') { QB.showAns = e.target.checked; qbRenderPreview(); }
