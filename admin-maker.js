@@ -2136,8 +2136,11 @@ function renderWeeklySummary() {
 }
 
 /* 자동 선택: 범위 안 문항을 지문 세트 단위로 묶어
- * ① 중심 난이도 ±2 분포(2·4·8·4·2) ② 취약 유형 우선 ③ 정확히 20문항을 넘지 않게 고릅니다.
+ * ① 중심 난이도 ±2 분포(2·4·8·4·2) ② 고른 취약 유형마다 최소 1문항·최대 2문항(같은 유형만 반복되지 않게)
+ * ③ 정확히 20문항을 넘지 않게 고릅니다.
  */
+const WK_WEAK_MIN = 1; // 취약 유형 하나당 최소 문항 수
+const WK_WEAK_MAX = 2; // 취약 유형 하나당 최대 문항 수
 function runWeeklyAutoSelection() {
     if (!WK_LOADED_FOR || !WEEKLY_INVENTORY_DATA.length) { showCustomAlert('먼저 학생을 골라 풀이 기록을 불러와 주십시오.'); return; }
     const targetLevel = parseInt(document.getElementById('weeklyLevelSlider').value, 10) || 5;
@@ -2163,7 +2166,10 @@ function runWeeklyAutoSelection() {
     groups.forEach(items => {
         if (!items.every(r => poolIds.has(String(r.qid)))) return;
         const diff = Math.round(items.reduce((a, r) => a + _wkDiff(r), 0) / items.length);
-        cands.push({ items: items, size: items.length, diff: diff, weak: items.some(r => _wkIsWeak(r, weak)), rnd: Math.random(),
+        // 세트 안에서 취약 유형별로 몇 문항인지 셉니다.
+        const wk = {};
+        weak.forEach(w => { const n = items.filter(r => _wkIsWeak(r, [w])).length; if (n) wk[w] = n; });
+        cands.push({ items: items, size: items.length, diff: diff, weak: Object.keys(wk).length > 0, wk: wk, rnd: Math.random(),
                      origins: [...new Set(items.map(_wkOriginId))] });
     });
 
@@ -2182,26 +2188,47 @@ function runWeeklyAutoSelection() {
     const usedOrigins = new Set();
     const clash = c => noSameOrigin && c.origins.some(o => usedOrigins.has(o));
     let overlapFill = 0;
-    const take = c => { used.add(c); picked.push(c); total += c.size; c.origins.forEach(o => usedOrigins.add(o)); };
-    const byPref = (a, b) => (b.weak - a.weak) || (a.size - b.size) || (a.rnd - b.rnd);
+    // 취약 유형별로 이미 들어간 문항 수 → 최대 WK_WEAK_MAX를 넘는 세트는 고르지 않습니다.
+    const weakUsed = {};
+    weak.forEach(w => { weakUsed[w] = 0; });
+    const weakOk = c => Object.keys(c.wk).every(w => weakUsed[w] + c.wk[w] <= WK_WEAK_MAX);
+    const take = c => {
+        used.add(c); picked.push(c); total += c.size; c.origins.forEach(o => usedOrigins.add(o));
+        Object.keys(c.wk).forEach(w => { weakUsed[w] += c.wk[w]; });
+    };
+    const byPref = (a, b) => (a.size - b.size) || (a.rnd - b.rnd);
+    const byNear = (a, b) => (Math.abs(a.diff - targetLevel) - Math.abs(b.diff - targetLevel)) || byPref(a, b);
+
+    // 0차: 고른 취약 유형마다 최소 WK_WEAK_MIN문항을 먼저 넣습니다. (중심 난이도에 가까운 것부터)
+    const weakMissing = [];
+    weak.slice().sort(() => Math.random() - 0.5).forEach(w => {
+        while (weakUsed[w] < WK_WEAK_MIN) {
+            const ok = cands.filter(c => !used.has(c) && c.wk[w] && weakOk(c) && total + c.size <= WK_TARGET);
+            const c = ok.filter(x => !clash(x)).sort(byNear)[0] || ok.sort(byNear)[0];
+            if (!c) { weakMissing.push(w); break; }
+            if (clash(c)) overlapFill += c.size;
+            take(c);
+            if (need[c.diff] != null) need[c.diff] -= c.size;
+        }
+    });
 
     // 1차: 난이도별 필요 수만큼 (중심 난이도부터)
     dist.map(([off]) => Math.min(15, Math.max(1, targetLevel + off)))
         .filter((l, i, arr) => arr.indexOf(l) === i)
         .forEach(l => {
             cands.filter(c => c.diff === l && !used.has(c)).sort(byPref).forEach(c => {
-                if (need[l] >= c.size && total + c.size <= WK_TARGET && !clash(c)) { take(c); need[l] -= c.size; }
+                if (need[l] >= c.size && total + c.size <= WK_TARGET && !clash(c) && weakOk(c)) { take(c); need[l] -= c.size; }
             });
         });
     // 2차: 모자라면 중심 난이도에 가까운 순으로 채움
     cands.filter(c => !used.has(c))
-        .sort((a, b) => (Math.abs(a.diff - targetLevel) - Math.abs(b.diff - targetLevel)) || byPref(a, b))
-        .forEach(c => { if (total + c.size <= WK_TARGET && !clash(c)) take(c); });
+        .sort(byNear)
+        .forEach(c => { if (total + c.size <= WK_TARGET && !clash(c) && weakOk(c)) take(c); });
     // 3차: 겹치지 않는 문항만으로 20문항이 안 되면, 그때만 겹치는 문항으로 채웁니다(되도록 안 겹치게).
     if (noSameOrigin && total < WK_TARGET) {
         cands.filter(c => !used.has(c))
-            .sort((a, b) => (Math.abs(a.diff - targetLevel) - Math.abs(b.diff - targetLevel)) || byPref(a, b))
-            .forEach(c => { if (total + c.size <= WK_TARGET) { take(c); overlapFill += c.size; } });
+            .sort(byNear)
+            .forEach(c => { if (total + c.size <= WK_TARGET && weakOk(c)) { take(c); overlapFill += c.size; } });
     }
 
     WK_SEL.clear();
@@ -2215,14 +2242,18 @@ function runWeeklyAutoSelection() {
     const first = document.querySelector('#weeklyInvTbody tr.wk-row.selected');
     if (first) first.scrollIntoView({ block: 'nearest' });
 
+    const weakNote = weakMissing.length ? ` (범위 안에 없는 취약 유형: ${weakMissing.join(', ')})` : '';
     if (total < WK_TARGET) {
         const why = [];
+        if (weak.length) why.push(`취약 유형 유형당 최대 ${WK_WEAK_MAX}문항`);
         if (skipRecent) why.push('최근 4주 배부 문항 빼기');
         if (excludeSolved) why.push('안 푼 문제만');
         if (noDesc) why.push('서술형 빼기');
-        showToast(`범위 안 문항이 부족해 ${total}문항만 골랐습니다.` + (why.length ? ` (${why.join(', ')} 조건을 풀거나 범위를 넓혀 보십시오)` : ' 범위를 넓혀 보십시오.'), 'error');
+        showToast(`범위 안 문항이 부족해 ${total}문항만 골랐습니다.` + (why.length ? ` (${why.join(', ')} 조건을 풀거나 범위를 넓혀 보십시오)` : ' 범위를 넓혀 보십시오.') + weakNote, 'error');
     } else if (overlapFill) {
-        showToast(`${total}문항을 골랐습니다. 겹치지 않는 문항이 모자라 같은 원본(기출·변형) ${overlapFill}문항이 함께 들어갔습니다.`, 'error');
+        showToast(`${total}문항을 골랐습니다. 겹치지 않는 문항이 모자라 같은 원본(기출·변형) ${overlapFill}문항이 함께 들어갔습니다.${weakNote}`, 'error');
+    } else if (weakNote) {
+        showToast(`${total}문항을 골랐습니다.${weakNote}`, 'error');
     } else {
         showToast(`${total}문항을 골랐습니다. 표에서 확인하고 바꿀 수 있습니다.`);
     }

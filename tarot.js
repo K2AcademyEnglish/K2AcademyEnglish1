@@ -210,10 +210,39 @@
   // 카드 그림: img/tarot/00.jpg ~ 21.jpg (가로 600 × 세로 803). 그림 파일이 없거나 못 불러오면 이모지 카드로 대신 보여 줍니다.
   const CARD_IMG_DIR = 'img/tarot/';
   const cardImgUrl = i => CARD_IMG_DIR + String(i).padStart(2, '0') + '.jpg';
+  // 네트워크가 잠깐 끊기거나 느려서 그림을 못 불러온 경우, 바로 이모지로 바꾸지 않고 몇 번 더 시도합니다.
+  const IMG_RETRY = 3;
+  const okUrl = {}; // 카드 번호 → 실제로 불러와진 주소 (다시 그릴 때 캐시를 그대로 씀)
+  const retryUrl = (i, n) => cardImgUrl(i) + '?r=' + n + '_' + Date.now();
+  window.__trImgErr = function (img) {
+    const n = (+img.dataset.retry || 0) + 1;
+    if (n > IMG_RETRY) { img.parentNode.classList.add('noimg'); return; }
+    img.dataset.retry = n;
+    setTimeout(() => { if (img.isConnected) img.src = retryUrl(img.dataset.i, n); }, 500 * n);
+  };
+  window.__trImgOk = function (img) {
+    okUrl[img.dataset.i] = img.getAttribute('src');
+    img.parentNode.classList.remove('noimg');
+    img.parentNode.classList.add('loaded');
+  };
+  // 결과를 보여 주기 전에 뽑힌 카드 그림을 미리 받아 둡니다. (최대 maxMs까지만 기다림)
+  function preloadCard(i, maxMs) {
+    const load = new Promise(res => {
+      let n = 0;
+      const tryOnce = url => {
+        const im = new Image();
+        im.onload = () => { okUrl[i] = url; res(true); };
+        im.onerror = () => { if (++n > IMG_RETRY) res(false); else setTimeout(() => tryOnce(retryUrl(i, n)), 500 * n); };
+        im.src = url;
+      };
+      tryOnce(okUrl[i] || cardImgUrl(i));
+    });
+    return Promise.race([load, new Promise(res => setTimeout(() => res(false), maxMs))]);
+  }
   function cardFace(i, big) {
     const c = CARDS[i];
     return `<div class="tr-cardimg ${big ? 'big' : ''}">
-        <img src="${cardImgUrl(i)}" alt="${esc(c[1])} 카드" onload="this.parentNode.classList.add('loaded')" onerror="this.parentNode.classList.add('noimg')">
+        <img src="${okUrl[i] || cardImgUrl(i)}" data-i="${i}" alt="${esc(c[1])} 카드" loading="eager" decoding="async" onload="window.__trImgOk(this)" onerror="window.__trImgErr(this)">
         <div class="tr-face">
           <div class="tr-num">${esc(c[0])}</div>
           <div class="tr-art">${c[3]}</div>
@@ -276,7 +305,9 @@
       box().querySelectorAll('.tr-card').forEach(b => { b.disabled = true; if (b !== btn) b.classList.add('fade'); });
       btn.classList.add('chosen');
       const wait = new Promise(res => setTimeout(res, 900)); // 카드가 떠오르는 연출 시간
-      Promise.all([call('drawTarot', [me().id, S.topic]), wait]).then(([res]) => {
+      Promise.all([call('drawTarot', [me().id, S.topic]), wait])
+        .then(([res]) => preloadCard(res.result.card, 4000).then(() => res))
+        .then(res => {
         S.busy = false;
         st.points = res.points; st.left = res.left; st.today.push(res.result);
         S.result = res.result;
