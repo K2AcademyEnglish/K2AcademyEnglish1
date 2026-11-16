@@ -207,13 +207,19 @@
   }
   const box = () => document.querySelector('#tarotOverlay .tr-box');
 
+  // 카드 그림: img/tarot/00.jpg ~ 21.jpg (가로 600 × 세로 803). 그림 파일이 없거나 못 불러오면 이모지 카드로 대신 보여 줍니다.
+  const CARD_IMG_DIR = 'img/tarot/';
+  const cardImgUrl = i => CARD_IMG_DIR + String(i).padStart(2, '0') + '.jpg';
   function cardFace(i, big) {
     const c = CARDS[i];
-    return `<div class="tr-face ${big ? 'big' : ''}">
-        <div class="tr-num">${esc(c[0])}</div>
-        <div class="tr-art">${c[3]}</div>
-        <div class="tr-name">${esc(c[1])}</div>
-        <div class="tr-en">${esc(c[2])}</div>
+    return `<div class="tr-cardimg ${big ? 'big' : ''}">
+        <img src="${cardImgUrl(i)}" alt="${esc(c[1])} 카드" onload="this.parentNode.classList.add('loaded')" onerror="this.parentNode.classList.add('noimg')">
+        <div class="tr-face">
+          <div class="tr-num">${esc(c[0])}</div>
+          <div class="tr-art">${c[3]}</div>
+          <div class="tr-name">${esc(c[1])}</div>
+          <div class="tr-en">${esc(c[2])}</div>
+        </div>
       </div>`;
   }
 
@@ -326,6 +332,13 @@
       #tarotOverlay.tr-overlay .tr-box .tr-result { display: flex; gap: 16px; align-items: flex-start; margin-top: 6px; }
       #tarotOverlay.tr-overlay .tr-box .tr-flip { flex-shrink: 0; animation: trFlip .7s ease-out; }
       @keyframes trFlip { from { transform: rotateY(90deg) scale(.9); opacity: 0; } to { transform: none; opacity: 1; } }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg { position: relative; width: 150px; aspect-ratio: 600 / 803; border-radius: 12px; overflow: hidden; box-shadow: 0 10px 24px rgba(0,0,0,.45); background: rgba(255,255,255,.08); }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg img { display: block; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity .35s; }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg.loaded img { opacity: 1; }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg .tr-face { display: none; position: absolute; inset: 0; width: auto; height: auto; }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg.noimg { box-shadow: none; background: none; }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg.noimg img { display: none; }
+      #tarotOverlay.tr-overlay .tr-box .tr-cardimg.noimg .tr-face { display: flex; }
       #tarotOverlay.tr-overlay .tr-box .tr-face { width: 120px; height: 196px; border-radius: 12px; background: linear-gradient(180deg,#fffbeb,#fde68a); color: #312e81; border: 3px solid #f59e0b; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 8px 6px; box-sizing: border-box; box-shadow: 0 10px 24px rgba(0,0,0,.4); }
       #tarotOverlay.tr-overlay .tr-box .tr-num { font-family: Georgia, serif; font-weight: 700; font-size: 15px; }
       #tarotOverlay.tr-overlay .tr-box .tr-art { font-size: 54px; line-height: 1; }
