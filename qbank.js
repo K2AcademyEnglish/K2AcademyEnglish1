@@ -484,7 +484,7 @@ const qbTagEsc = s => String(s);
 function qbPdfChars(ops, OPS, fontStyle) {
   const chars = [];
   let ctm = [1, 0, 0, 1, 0, 0], tm = [1, 0, 0, 1, 0, 0], tlm = [1, 0, 0, 1, 0, 0];
-  let fs = 10, h = 1, cs = 0, ws = 0, lead = 0, fit = false, fbd = false, mode = 0;
+  let fs = 10, h = 1, cs = 0, ws = 0, lead = 0, fit = false, fbd = false, mode = 0, fid = '';
   const stack = [];
   const arr6 = a => { const m = (a && a.length === 1 && a[0] && typeof a[0] === 'object') ? a[0] : a; return [0, 1, 2, 3, 4, 5].map(k => Number(m[k])); };
   for (let i = 0; i < ops.fnArray.length; i++) {
@@ -493,7 +493,7 @@ function qbPdfChars(ops, OPS, fontStyle) {
     else if (fn === OPS.restore) { const st = stack.pop(); if (st) ({ ctm, fs, h, cs, ws, lead, fit, fbd, mode } = st); }
     else if (fn === OPS.transform) ctm = qbMul(ctm, arr6(a));
     else if (fn === OPS.beginText) { tm = [1, 0, 0, 1, 0, 0]; tlm = tm; }
-    else if (fn === OPS.setFont) { fs = Number(a[1]) || fs; const st = fontStyle ? fontStyle(a[0]) : null; fit = !!(st && st.it); fbd = !!(st && st.bd); }
+    else if (fn === OPS.setFont) { fid = String(a[0]); fs = Number(a[1]) || fs; const st = fontStyle ? fontStyle(a[0]) : null; fit = !!(st && st.it); fbd = !!(st && st.bd); }
     else if (fn === OPS.setTextRenderingMode) mode = Number(a[0]) || 0;      // 2 = 채우기+윤곽선(가짜 굵게)
     else if (fn === OPS.setHScale) h = (Number(a[0]) || 100) / 100;
     else if (fn === OPS.setCharSpacing) cs = Number(a[0]) || 0;
@@ -514,13 +514,52 @@ function qbPdfChars(ops, OPS, fontStyle) {
         const M = qbMul(ctm, qbMul(tm, [1, 0, 0, 1, tx, 0]));
         const sx = Math.hypot(M[0], M[1]) || 1, sy = Math.hypot(M[2], M[3]) || 1;
         const u = g.unicode != null ? String(g.unicode) : '';
-        if (u) chars.push({ ch: u, x0: M[4], x1: M[4] + adv * sx, y: M[5], size: fs * sy, bold: fbd || mode === 2, italic: fit || (Math.abs(M[2]) > Math.abs(M[0]) * 0.12 && Math.abs(M[1]) < Math.abs(M[0]) * 0.05) });
+        if (u) chars.push({ fid: fid, ch: u, x0: M[4], x1: M[4] + adv * sx, y: M[5], size: fs * sy, bold: fbd || mode === 2, italic: fit || (Math.abs(M[2]) > Math.abs(M[0]) * 0.12 && Math.abs(M[1]) < Math.abs(M[0]) * 0.05) });
         tx += adv;
       }
       tm = qbMul(tm, [1, 0, 0, 1, tx, 0]);
     }
   }
+  qbFixHwpHangul(chars);
   return chars;
+}
+
+/* 한글(HWP)에서 만든 PDF 중 일부는 한글 글꼴에 문자표(ToUnicode)가 없어서, 한글이 '뭲뗲 딮ꆚ'처럼 엉뚱한 글자로 읽힙니다.
+ * 이런 글꼴은 글자 번호가 가~힣 순서대로 일정한 간격만큼 밀려 있으므로(함초롬바탕: 가 = 0x99D6),
+ * 글꼴마다 자주 쓰는 한글 음절(이·다·의·는…)이 가장 많이 나오는 간격을 찾아 바로잡습니다.
+ * 정상적인 글꼴은 이미 자주 쓰는 음절이 많아 손대지 않습니다.
+ */
+const QB_KO_COMMON = '이다의는에을하고가지서한로를기도사리그인있으해수적것대자시나여게어들아라면부상정전성일보만와주우제과없중';
+function qbFixHwpHangul(chars) {
+  const byFont = {};
+  chars.forEach(c => { if (c.ch.length === 1) (byFont[c.fid] = byFont[c.fid] || []).push(c); });
+  const common = new Set(QB_KO_COMMON);
+  Object.keys(byFont).forEach(fid => {
+    const list = byFont[fid].filter(c => c.ch.charCodeAt(0) >= 0x3400);
+    if (list.length < 20) return;
+    const codes = list.map(c => c.ch.charCodeAt(0));
+    const scoreOf = base => codes.reduce((n, code) => {
+      const k = code - base;
+      return n + (k >= 0 && k < 11172 && common.has(String.fromCharCode(0xAC00 + k)) ? 1 : 0);
+    }, 0) / codes.length;
+    const raw = scoreOf(0xAC00);
+    if (raw >= 0.15) return;                       // 이미 정상적인 한글
+    const freq = {};
+    codes.forEach(code => { freq[code] = (freq[code] || 0) + 1; });
+    const top = Object.keys(freq).sort((a, b) => freq[b] - freq[a]).slice(0, 8).map(Number);
+    let best = 0, bestScore = 0;
+    top.forEach(code => [...QB_KO_COMMON.slice(0, 10)].forEach(syl => {
+      const base = code - (syl.charCodeAt(0) - 0xAC00);
+      if (base === 0xAC00) return;
+      const sc = scoreOf(base);
+      if (sc > bestScore) { bestScore = sc; best = base; }
+    }));
+    if (bestScore < 0.25 || bestScore < raw * 2) return;
+    list.forEach(c => {
+      const k = c.ch.charCodeAt(0) - best;
+      if (k >= 0 && k < 11172) c.ch = String.fromCharCode(0xAC00 + k);
+    });
+  });
 }
 
 // 다음 줄이 새 항목(번호·글머리표·굵은 제목·가운데 줄·각주·①)이 아닌 평범한 영어 글인지
