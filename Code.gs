@@ -70,7 +70,8 @@ const ADMIN_API_ = new Set([
   'loadWeeklyStudentBundle', 'updateMasterIndex', 'getWeeklyReportData',
   'getQuestionMetaIndex', 'getStudentQuestionStats', 'loadWeeklyStudentStats', 'getAssignmentResult',
   'deleteWord',
-  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden'
+  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden',
+  'deleteAssignments'
 ]);
 
 // doPost(깃헙 화면)로 들어온 요청인지 표시. 관리자 기능은 이 길로만 열립니다.
@@ -4123,4 +4124,58 @@ function adminDeleteStudent(auth, id, opts) {
   }, 20000);
   console.log('[학생 삭제] ' + me.id + ' → ' + id + '(' + m.name + ') 기록삭제=' + !!opts.withData + ' ' + JSON.stringify(done));
   return { ok: true, withData: !!opts.withData, deleted: done };
+}
+
+
+/* ===================== [과제 삭제] (관리자 · 배부기록) =====================
+ * ids: 과제ID(세션ID) 목록, opts.withLogs: 학생이 이 과제에서 낸 답안 기록도 지울지
+ *  - 과제 시트의 행을 지웁니다.
+ *  - 과제결과 표(과제결과_*): 그 과제의 결과 행은 내용만 비웁니다(다른 과제 행 위치 보존). 색인 행은 지웁니다.
+ *  - withLogs: 답안 기록(StudentLogs, Logs_*)에서 세션ID가 같은 행을 지웁니다.
+ *    끄면 답안 기록은 남아 학생의 오답·풀이 통계에 그대로 쓰입니다.
+ */
+function deleteAssignments(ids, opts) {
+  _guardDirect_();
+  opts = opts || {};
+  ids = [...new Set((Array.isArray(ids) ? ids : [ids]).map(x => String(x || '').trim()).filter(Boolean))].slice(0, 200);
+  if (!ids.length) throw new Error('지울 과제를 고르십시오.');
+  const ss = _logSS();
+  const done = { assignments: 0, results: 0, logs: 0 };
+  // 1) 과제결과 색인 → 결과 행 비우기, 색인 행 지우기
+  const idx = ss.getSheetByName('과제결과_색인');
+  if (idx && idx.getLastRow() > 1) {
+    _withLock_(() => {
+      const rows = [];
+      ids.forEach(aId => rows.push(..._findRowNumbers_(idx, 3, aId, true)));
+      _readRowNumbers_(idx, rows, 8).forEach(item => {
+        const v = item.values, sh = ss.getSheetByName(String(v[3] || ''));
+        const start = Number(v[4]) || 0, count = Number(v[5]) || 0;
+        if (sh && start >= 2 && count > 0) { sh.getRange(start, 1, count, sh.getLastColumn()).clearContent(); done.results += count; }
+      });
+      _stDeleteRows_(idx, rows, false);
+    }, 30000);
+  }
+  // 2) 과제 행
+  const asg = ss.getSheetByName('과제');
+  if (asg) {
+    _withLock_(() => {
+      const rows = [];
+      ids.forEach(aId => rows.push(..._findRowNumbers_(asg, 1, aId, true)));
+      done.assignments = _stDeleteRows_(asg, rows, false);
+    }, 30000);
+  }
+  // 3) 답안 기록 (선택)
+  if (opts.withLogs) {
+    ss.getSheets().forEach(sh => {
+      const n = sh.getName();
+      if (n !== QBANK_MASTER_LOG_SHEET && n.indexOf('Logs_') !== 0) return;
+      done.logs += _withLock_(() => {
+        const rows = [];
+        ids.forEach(aId => rows.push(..._findRowNumbers_(sh, 2, aId, true)));
+        return _stDeleteRows_(sh, rows, false);
+      }, 30000);
+    });
+  }
+  try { const c = CacheService.getScriptCache(); c.removeAll(ids.map(aId => 'ASGN_ROW_v1_' + aId).filter(k => k.length <= 250)); } catch (e) {}
+  return done;
 }

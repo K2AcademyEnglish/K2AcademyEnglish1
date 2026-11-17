@@ -1030,8 +1030,12 @@ function renderHistoryUI() {
 
   if (listToRender.length === 0) {
       tbody.innerHTML = '<tr><td colspan="6" style="padding:20px; text-align:center;">조건에 맞는 기록이 없습니다.</td></tr>';
+      renderHistoryDeleteBar();
       return;
   }
+
+  // 지운 과제·사라진 과제는 선택에서 뺍니다.
+  [...HISTORY_SELECTED].forEach(id => { if (!ADMIN_HISTORY_CACHE.some(r => r.id === id)) HISTORY_SELECTED.delete(id); });
 
   // 렌더링 시작
   const fragment = document.createDocumentFragment();
@@ -1062,7 +1066,7 @@ function renderHistoryUI() {
     }
 
     tr.innerHTML = `
-       <td style="padding:10px; text-align:center; color:#6b7280; font-size:12px;">${row.date}</td>
+       <td style="padding:10px; text-align:center; color:#6b7280; font-size:12px;"><label style="display:flex; gap:6px; align-items:center; justify-content:center; cursor:pointer;"><input type="checkbox" class="chk-history-pick" style="margin:0; width:15px; height:15px;"${HISTORY_SELECTED.has(row.id) ? ' checked' : ''} aria-label="이 과제 선택">${row.date}</label></td>
        <td style="padding:10px; font-weight:bold; text-align:center; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${row.student}</td>
        <td style="padding:10px; color:#4b5563; text-align:left; word-break:break-all; line-height:1.4;">${sanitizeInlineHTML(row.title)}</td>
        <td style="padding:10px; text-align:center;">${row.totalCount}</td>
@@ -1075,6 +1079,7 @@ function renderHistoryUI() {
             <button class="btn-detail" style="padding:4px 6px; font-size:12px; border:1px solid #2b6cb0; background:#fff; color:#2b6cb0; border-radius:4px; cursor:pointer;">📊 결과</button>
             <button class="btn-reprint" style="padding:4px 6px; font-size:12px; border:1px solid #2b6cb0; background:#fff; color:#2b6cb0; border-radius:4px; cursor:pointer;">🖨️ 재출력</button>
             <button class="btn-reprint-wrong" style="padding:4px 6px; font-size:12px; border:1px solid #dc2626; background:#fff; color:#dc2626; border-radius:4px; cursor:pointer;">오답만</button>
+            <button class="btn-del-asg" title="과제 삭제" aria-label="과제 삭제" style="padding:4px 6px; font-size:12px; border:1px solid #d1d5db; background:#fff; color:#6b7280; border-radius:4px; cursor:pointer;">🗑</button>
          </div>
        </td>
     `;
@@ -1085,9 +1090,72 @@ function renderHistoryUI() {
     }
     tr.querySelector('.btn-reprint').onclick = () => doReprintAssignment(row.student, row.qids, row.title, row.date, row.studentId, row.isWeekly);
     tr.querySelector('.btn-reprint-wrong').onclick = () => doReprintWrongOnly(row.student, row.qids, row.title, row.date, row.studentId, row.id, row.isWeekly);    
+    tr.querySelector('.btn-del-asg').onclick = () => confirmDeleteAssignments([row.id]);
+    tr.querySelector('.chk-history-pick').onchange = e => {
+      if (e.target.checked) HISTORY_SELECTED.add(row.id); else HISTORY_SELECTED.delete(row.id);
+      renderHistoryDeleteBar();
+    };
     fragment.appendChild(tr);
   });
   tbody.appendChild(fragment);
+  renderHistoryDeleteBar();
+}
+
+/* ---------- 과제 삭제 (배부기록) ---------- */
+const HISTORY_SELECTED = new Set();
+// 선택한 과제가 있으면 표 위에 [선택 삭제] 막대를 띄웁니다. (index.html을 고치지 않도록 스크립트로 만듦)
+function renderHistoryDeleteBar() {
+  const tbody = document.getElementById('historyTbody');
+  const table = tbody ? tbody.closest('table') : null;
+  if (!table) return;
+  let bar = document.getElementById('historyDeleteBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'historyDeleteBar';
+    bar.style.cssText = 'display:none; position:sticky; top:64px; z-index:5; align-items:center; gap:10px; flex-wrap:wrap; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px 12px; font-size:13px;';
+    table.parentNode.insertBefore(bar, table);
+  }
+  const n = HISTORY_SELECTED.size;
+  bar.style.display = n ? 'flex' : 'none';
+  if (!n) return;
+  bar.innerHTML = `<b>${n}개 과제 선택</b>
+    <button type="button" id="btnHistoryDelSel" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:1px solid #dc2626; background:#dc2626; color:#fff; border-radius:6px; cursor:pointer;">🗑 선택 삭제</button>
+    <button type="button" id="btnHistorySelAll" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:1px solid #d1d5db; background:#fff; color:#374151; border-radius:6px; cursor:pointer;">보이는 과제 모두 선택</button>
+    <button type="button" id="btnHistorySelClear" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:0; background:none; color:#6b7280; cursor:pointer;">선택 해제</button>`;
+  document.getElementById('btnHistoryDelSel').onclick = () => confirmDeleteAssignments([...HISTORY_SELECTED]);
+  document.getElementById('btnHistorySelAll').onclick = () => {
+    document.querySelectorAll('#historyTbody .chk-history-pick').forEach(c => { c.checked = true; c.dispatchEvent(new Event('change')); });
+  };
+  document.getElementById('btnHistorySelClear').onclick = () => { HISTORY_SELECTED.clear(); renderHistoryUI(); };
+}
+function confirmDeleteAssignments(ids) {
+  const rows = ids.map(id => ADMIN_HISTORY_CACHE.find(r => r.id === id)).filter(Boolean);
+  if (!rows.length) return;
+  const started = rows.filter(r => r.displayStatus !== '미완료').length;
+  const list = rows.slice(0, 5).map(r => `· ${escapeHTML(r.date)} ${escapeHTML(r.student)} — ${sanitizeInlineHTML(r.title)}`).join('<br>') + (rows.length > 5 ? `<br>· 외 ${rows.length - 5}개` : '');
+  showCustomConfirm(
+    `<b>과제 ${rows.length}개를 삭제할까요?</b><br><div style="text-align:left; font-size:13px; color:#4b5563; margin:8px 0; max-height:140px; overflow:auto;">${list}</div>` +
+    `학생 과제 목록과 배부기록에서 사라지며 <b>되돌릴 수 없습니다.</b>` +
+    (started ? `<br><label style="display:flex; gap:6px; align-items:flex-start; justify-content:center; margin-top:10px; font-size:13px; cursor:pointer;"><input type="checkbox" id="chkDelAsgLogs" style="margin:2px 0 0; width:15px; height:15px;"> <span style="text-align:left;">학생이 이 과제에서 낸 <b>답안 기록도 삭제</b><br><span style="color:#6b7280;">(${started}개 과제에 답안이 있습니다. 끄면 오답·풀이 통계에 그대로 남습니다)</span></span></label>` : ''),
+    () => runDeleteAssignments(rows.map(r => r.id), !!(logsBox && logsBox.checked))
+  );
+  const logsBox = document.getElementById('chkDelAsgLogs');
+}
+function runDeleteAssignments(ids, withLogs) {
+  const user = CURRENT_USER;
+  const loadEl = document.getElementById('loadingOverlay');
+  if (loadEl) { loadEl.querySelector('.loading-text').innerHTML = `과제 ${ids.length}개를 삭제하는 중...`; loadEl.classList.add('active'); }
+  gsCall('deleteAssignments', [ids, { withLogs: withLogs }]).then(res => {
+    if (CURRENT_USER !== user) return;
+    const gone = new Set(ids);
+    ADMIN_HISTORY_CACHE = ADMIN_HISTORY_CACHE.filter(r => !gone.has(r.id));
+    ids.forEach(id => HISTORY_SELECTED.delete(id));
+    ['adminHistory:3m', 'adminHistory:all'].forEach(k => swrInvalidate(k, user.id));
+    renderHistoryUI();
+    showToast(`과제 ${res.assignments}개를 삭제했습니다.` + (withLogs ? ` (답안 기록 ${res.logs}줄 함께 삭제)` : ''), 'info');
+  }).catch(err => {
+    showCustomAlert('과제 삭제 실패: ' + escapeHTML(String(err && err.message || err)) + '<br>[조회 새로고침]으로 현재 상태를 확인해 주십시오.');
+  }).finally(() => { if (loadEl) loadEl.classList.remove('active'); });
 }
 
 // 3. 재출력 기능 (기존 renderQuestionsForPrint 재사용)
