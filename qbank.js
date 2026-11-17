@@ -1641,6 +1641,7 @@ function qbRenderForm() {
   const showBox = r => w.v[r] || w.f[r] || r === 6 || (w.extraBoxes || 0) >= r - 6;
   const warns = qbValidate(key);
   main.innerHTML = `
+    <div class="qb-sticky">
     <div class="qb-form-head">
       <div><div class="qb-form-title">${qbEsc(qbShortId(w.v[0]) || '(ID 없음)')} <span class="qb-muted">${qbEsc(w.v[2] || '')}</span></div>
         <div class="qb-muted qb-where">${where}</div></div>
@@ -1650,10 +1651,11 @@ function qbRenderForm() {
         <button type="button" class="qb-btn qb-btn-primary" data-qb="save-one" data-qb-busy ${qbIsDirty(key) ? '' : 'disabled'}>저장</button>
       </div>
     </div>
-    ${col && col.hidden ? `<div class="qb-note">숨긴 문항입니다. 원래 출처: <b>${qbEsc(col.hiddenSource)}</b></div>` : ''}
-    ${warns.length ? `<div class="qb-warn">${warns.map(x => '• ' + qbEsc(x)).join('<br>')}</div>` : ''}
     <div class="qb-toolbar" id="qbToolbar">${tb}</div>
     <div id="qbToolPop" class="qb-toolpop" hidden></div>
+    </div>
+    ${col && col.hidden ? `<div class="qb-note">숨긴 문항입니다. 원래 출처: <b>${qbEsc(col.hiddenSource)}</b></div>` : ''}
+    ${warns.length ? `<div class="qb-warn">${warns.map(x => '• ' + qbEsc(x)).join('<br>')}</div>` : ''}
     <div class="qb-grid4">${fields(0)}${fields(1)}${fields(2)}${fields(4)}</div>
     ${fields(3)}
     ${fields(5)}
