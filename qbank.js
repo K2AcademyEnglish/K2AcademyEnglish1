@@ -379,6 +379,9 @@ function qbEbsNormalize(lines) {
     // 각주 줄 끝에 붙은 Gateway 풀이 머리말("∙crude: 투박한 Words & Phrases in Use")은 나눕니다.
     const hm = t.match(/^(.+?)\s+((?:<[a-z]>)*(?:Words\s*&\s*Phrases in Use|Solving Strategies|Academic Vocabulary).*)$/);
     if (hm) { out.push(hm[1]); t = hm[2]; }
+    // 질문 줄 가운데에 문항 코드가 끼어든 경우: "… 의미하는 바로 26005-0014 가장 적절한 것은?" → 질문 / 코드
+    const mc = t.match(/^(.*[가-힣].*?)\s+(\d{5}-\d{4})\s+([가-힣][^.!]{0,40}[?？])\s*$/);
+    if (mc && !/G\s?a\s?t\s?e\s?w\s?a\s?y/.test(mc[1]) && !/학년도/.test(mc[1])) { out.push(mc[1] + ' ' + mc[3]); out.push(mc[2]); continue; }
     // 질문이 두 줄로 나뉘고 번호가 첫 줄 끝에 붙은 경우: "… 가장 적 01" / "절한 것은?"
     const w = t.match(/^(.*[가-힣])\s+(\d{2})$/);
     if (w && !/[?？]/.test(w[1]) && i + 1 < lines.length && /^[가-힣][^?？]{0,30}[?？]\s*$/.test(lines[i + 1].trim()) && qAt(w[1] + lines[i + 1].trim()) >= 0) {
@@ -393,8 +396,9 @@ function qbEbsNormalize(lines) {
       out.push(q.trim()); out.push(e[2]);
       continue;
     }
-    const g = t.match(/^(.*?)(?:^|\s)G\s*ateway\s+\d{4}학년도\s*(?:수능|\d{1,2}월\s*모의평가|대학수학능력시험)?\s*\d{1,2}(?:\s*~\s*\d{1,2})?번\s*(.*)$/);
-    if (g) {
+    // "Gateway"(띄어 쓰거나 굵게 한 것 포함)가 줄 안에 있으면: 앞 글 / Gateway / (출처 "2025학년도 수능 18번" 뒤) 나머지
+    const g = t.match(/^(.*?)(?:^|\s)(?:<b>)?G(?:<\/b>)?\s?a\s?t\s?e\s?w\s?a\s?y(?:<\/b>)?(?=\s|$)\s*(?:\d{4}학년도\s*(?:\S+\s+){0,3}?\d{1,2}(?:\s*~\s*\d{1,2})?번)?\s*(.*)$/);
+    if (g && (!g[1].trim() || /[가-힣∙•:]|^\S{0,20}$/.test(g[1]) || QB_EBS_CODE.test(g[2]) || !g[2].trim())) {
       if (g[1].trim() && !/•/.test(g[1])) out.push(g[1].trim());   // 앞에 붙은 각주 (옆면 단원 표시 "01•글의 목적 파"는 버림)
       out.push('Gateway');
       if (g[2].trim()) out.push(g[2].trim());
@@ -414,8 +418,15 @@ function qbEbsNormalize(lines) {
   out.forEach((t, i) => {
     const n = t.trim().match(/^(?:<b>)?(\d{2})(?:<\/b>)?$/);
     const prev = res[res.length - 1], next = out[i + 1] || '';
-    if (n && prev != null && /[가-힣]/.test(prev) && /([?？]|시오\.)\s*(\[\s*\d\s*점\s*\])?\s*$/.test(prev) && !/^<b>\d{2}<\/b>/.test(prev) && QB_EBS_CODE.test(next.trim())) {
+    const isQ = x => x != null && /[가-힣]/.test(x) && /([?？]|시오\.)\s*(\[\s*\d\s*점\s*\])?\s*$/.test(x) && !/^(<b>)?\d{2}(<\/b>)?\s/.test(x);
+    if (n && isQ(prev) && QB_EBS_CODE.test(next.trim())) {
       res[res.length - 1] = '<b>' + n[1] + '</b> ' + prev.trim();
+      return;
+    }
+    // 번호가 코드 다음 줄에 온 경우: 질문 / 코드 / 01
+    const prev2 = res[res.length - 2];
+    if (n && prev != null && /^\d{5}-\d{4}$/.test(prev.trim()) && isQ(prev2)) {
+      res[res.length - 2] = '<b>' + n[1] + '</b> ' + prev2.trim();
       return;
     }
     res.push(t);
@@ -430,10 +441,11 @@ function qbParseEbs(text, opts) {
     .replace(/[ \t]+(?=<b>\d{2}<\/b>\s+(?:<u>)?[^\s<]*?[가-힣A-Za-z‘'“"])/g, '\n')
     .replace(/[ \t]+(?=\d{2}\s*~\s*\d{2}\s+다음 글을 읽고)/g, '\n')
     .split('\n');
-  lines = qbEbsNormalize(lines);
+  // 해설 부분은 원래 줄 그대로 두고, 문항 부분만 줄 모양을 맞춥니다.
   const ks = qbEbsKeyStart(lines);
   const keyLines = ks >= 0 ? lines.slice(Math.max(0, ks - 2)) : [];
   if (ks >= 0) lines = lines.slice(0, Math.max(0, ks - 2));
+  lines = qbEbsNormalize(lines);
   // 해설이 없는 교재: 맨 끝 「빠른 정답」 표(Part I 유형편 / G 01 02 … / 01 ① ③ …)
   let quickLines = [];
   if (ks < 0) {
@@ -457,14 +469,19 @@ function qbParseEbs(text, opts) {
   const isG = l => /^<b>G<\/b>\s*ateway|^G\s*ateway\b/.test(l);
   const isE = l => /^<b>E<\/b>\s*xercises|^E\s*xercises\s*$/.test(l);
   const grpRe = /^\[?\s*(\d{2})\s*~\s*(\d{2})\s*\]?\s*다음 글을 읽고/;
-  const stemRe = /^<b>(\d{2})<\/b>\s+(.*)$/;
+  // 문항 머리: "<b>01</b> 다음 글의 …" (굵게가 아니어도 질문 모양이면 인정)
+  const stemRe = /^(?:<b>)?(\d{2})(?:<\/b>)?\s+(.*)$/;
+  const isStem = (t, m, i) => m && /[가-힣]/.test(m[2]) && (/^<b>\d{2}<\/b>/.test(t) ||
+    /([?？]|시오\.)\s*(\[\s*\d\s*점\s*\])?\s*$/.test(m[2].replace(QB_EBS_CODE, '').trim()) || QB_EBS_CODE.test(m[2]) || QB_EBS_CODE.test(lines[i + 1] || ''));
   // 1) 문항 덩어리 찾기
   const blocks = [];
-  let cur = null, pendG = false, pendE = false;
+  let cur = null, pendG = false, pendE = false, lastQ = null;
   const close = () => { if (cur) blocks.push(cur); cur = null; };
+  const qLike = t => /[가-힣]/.test(t) && /([?？]|시오\.)\s*(\[\s*\d\s*점\s*\])?\s*$/.test(t) && !QB_EBS_CODE.test(t) && t.length < 200;
   lines.forEach((l, i) => {
     const t = l.trim();
     if (!t) return;
+    if (qLike(t) && !stemRe.test(t)) lastQ = { t: t, i: i, target: cur && cur.kind === 'group' ? (cur.open || cur) : cur };
     if (isG(t)) { close(); pendG = true; pendE = false; return; }
     if (isE(t)) { close(); pendE = true; pendG = false; return; }
     let m;
@@ -475,7 +492,7 @@ function qbParseEbs(text, opts) {
       return;
     }
     const code = t.match(QB_EBS_CODE);
-    if ((m = t.match(stemRe)) && /[가-힣]/.test(m[2])) {
+    if ((m = t.match(stemRe)) && isStem(t, m, i)) {
       if (cur && cur.kind === 'group' && !cur.qs) cur.qs = [];
       const q = { kind: 'q', n: Number(m[1]), stem: m[2].replace(QB_EBS_CODE, '').trim(), code: code ? code[1] : '', line: i, body: [] };
       if (cur && cur.kind === 'group' && Number(m[1]) >= cur.from && Number(m[1]) <= cur.to) { cur.qs.push(q); cur.open = q; }
@@ -497,8 +514,16 @@ function qbParseEbs(text, opts) {
         cur.qs.push(q); cur.open = q; return;
       }
       // Gateway: "26005-0001 다음 글의 목적으로 …"
+      // 질문이 코드 앞 줄에 있는데 번호를 읽지 못한 경우: 그 질문 줄을 이 문항의 질문으로 가져옵니다.
+      let stem = rest;
+      if (!stem && lastQ && i - lastQ.i <= 3) {
+        stem = lastQ.t;
+        const tb = lastQ.target && lastQ.target.body;
+        if (tb && tb[tb.length - 1] === lastQ.t) tb.pop();
+        lastQ = null;
+      }
       close();
-      cur = { kind: 'q', n: 0, stem: rest, code: code[1], line: i, body: [], g: pendG, e: pendE };
+      cur = { kind: 'q', n: 0, stem: stem, code: code[1], line: i, body: [], g: pendG, e: pendE };
       pendG = pendE = false;
       return;
     }
@@ -522,6 +547,8 @@ function qbParseEbs(text, opts) {
     else if (pendingE || mode === 'G') { mode = 'E'; prevN = 0; }      // Gateway 다음 번호 문항 = Exercises
     else if (qs[0].n && qs[0].n <= prevN && mode !== '') { mode = 'T'; test++; }
     pendingG = pendingE = false;
+    // 번호를 읽지 못한 문항(Exercises·Test): 앞 문항 다음 번호로 추정하고 확인 경고를 붙입니다.
+    if (mode !== 'G' && b.kind !== 'group') qs.forEach(q => { if (!q.n) { q.n = prevN + 1; q.guessed = true; } });
     const label = q => mode === 'T' ? 'T' + test + '-' + q.n : mode === 'G' ? unit + '-G' + (b.kind === 'group' ? q.n : '') : unit + '-' + q.n;
     // 2) qbParsePaste로 넘길 글 만들기 (수능 번호 체계를 빌려 씀: 장문은 41~42 / 43~45)
     const cut = body => {
@@ -562,16 +589,38 @@ function qbParseEbs(text, opts) {
     qs.forEach((q, i) => {
       const r = parsed.find(x => x.num === nums[i]);
       seq++;
-      if (!r) { out.push({ label: label(q), code: q.code, seq, num: seq, type: '', v: new Array(17).fill(''), link: null, warnings: ['문항을 나누지 못했습니다.'], unit, test, mode }); return; }
+      if (!r) { out.push({ label: label(q), code: q.code, seq, num: seq, type: '', v: new Array(17).fill(''), link: null, warnings: ['문항을 나누지 못했습니다.'].concat(q.guessed ? ['문항 번호도 읽지 못해 ' + label(q) + '로 추정했습니다.'] : []), unit, test, mode }); prevN = q.n; return; }
       if (r.type === '불일치' && /관한/.test(r.v[5]) && !/안내문|광고/.test(r.v[5])) r.v[2] = r.type = '설명문';
       if (r.link) r.link = Object.assign({}, r.link, { head: headSeq });
       prevN = q.n;
-      out.push({ label: label(q), code: q.code, seq, num: seq, type: r.type, v: r.v, link: r.link, warnings: r.warnings, unit, test, mode });
+      const warnings = r.warnings.slice();
+      if (q.guessed) warnings.unshift('문항 번호를 읽지 못해 앞 문항 다음 번호(' + label(q) + ')로 추정했습니다. 확인해 주세요.');
+      out.push({ label: label(q), code: q.code, seq, num: seq, type: r.type, v: r.v, link: r.link, warnings: warnings, unit, test, mode });
     });
   });
-  if (keyLines.length) return { items: out, key: qbParseEbsKey(keyLines.join('\n')) };
-  const quick = quickLines.length ? qbEbsQuickKey(quickLines, out) : null;
-  return { items: out, key: quick, keyQuick: !!quick };
+  const key = keyLines.length ? qbParseEbsKey(keyLines.join('\n')) : (quickLines.length ? qbEbsQuickKey(quickLines, out) : null);
+  return { items: out, key: key, keyQuick: !keyLines.length && !!key, report: qbEbsReport(lines, out, key) };
+}
+// 가져오기 점검: 본문에 있는데 문항으로 못 만든 코드, 코드 번호 건너뜀, 같은 이름 중복, 정답 없는 문항
+function qbEbsReport(lines, items, key) {
+  const got = new Set(items.map(x => x.code));
+  const seen = [];
+  lines.forEach(l => { const re = /\b(\d{5}-\d{4})\b/g; let m; while ((m = re.exec(l))) if (seen.indexOf(m[1]) < 0) seen.push(m[1]); });
+  // 책의 문항 코드 앞부분(가장 많은 것)과 같은 코드만 봅니다. ('이 책의 구성' 예시 00000-0001 등 제외)
+  const pc = {}; items.forEach(x => { if (x.code) pc[x.code.slice(0, 5)] = (pc[x.code.slice(0, 5)] || 0) + 1; });
+  const main = Object.keys(pc).sort((a, b) => pc[b] - pc[a])[0];
+  const notMade = seen.filter(c => !got.has(c) && c.slice(0, 5) === main);
+  const nums = items.map(x => x.code).filter(Boolean).map(c => ({ p: c.slice(0, 5), n: Number(c.slice(6)) }));
+  const gaps = [];
+  if (nums.length) {
+    const p = nums[0].p, ns = nums.filter(x => x.p === p).map(x => x.n).sort((a, b) => a - b);
+    for (let k = 1; k < ns.length; k++) for (let n = ns[k - 1] + 1; n < ns[k] && gaps.length < 30; n++) gaps.push(p + '-' + String(n).padStart(4, '0'));
+  }
+  const cnt = {}; items.forEach(x => { cnt[x.label] = (cnt[x.label] || 0) + 1; });
+  const dup = Object.keys(cnt).filter(l => cnt[l] > 1);
+  const noAns = key ? items.filter(x => !(key[x.label] && key[x.label].ans)).map(x => x.label) : [];
+  const warned = items.filter(x => x.warnings.some(w => /추정|나누지 못/.test(w))).map(x => x.label);
+  return { notMade: notMade, gaps: gaps.filter(c => notMade.indexOf(c) < 0), dup: dup, noAns: noAns, guessed: warned };
 }
 // 「빠른 정답」 표 → { '1-G': {ans}, '1-1': {ans}, …, 'T1-1': {ans} }
 //  유형편·주제소재편: "01 ① ③ ③ ⑤ ⑤"(강 번호 뒤 Gateway, Exercises 순)
@@ -2922,7 +2971,16 @@ function qbEbsRender() {
     g.rows.push(i);
   });
   const key = QB_EBS.key;
-  out.innerHTML = `<div class="qb-paste-sum">EBS 교재 ${items.length}문항 (${groups.filter(g => g.k[0] !== 'T').length}강${groups.some(g => g.k[0] === 'T') ? ' + Test ' + groups.filter(g => g.k[0] === 'T').length + '회' : ''})${key ? ' · 같은 PDF에서 정답·해설 ' + Object.keys(key).length + '문항' : ''}</div>
+  const rp = QB_EBS.report || {};
+  const rpList = (a, n) => a.slice(0, n || 12).map(qbEsc).join(', ') + (a.length > (n || 12) ? ` 외 ${a.length - (n || 12)}개` : '');
+  const rpLines = [];
+  if (rp.notMade && rp.notMade.length) rpLines.push(`본문에 코드는 있는데 문항으로 나누지 못함 ${rp.notMade.length}개: ${rpList(rp.notMade)}`);
+  if (rp.gaps && rp.gaps.length) rpLines.push(`코드 번호가 건너뜀(PDF에서 안 읽힘) ${rp.gaps.length}개: ${rpList(rp.gaps)}`);
+  if (rp.dup && rp.dup.length) rpLines.push(`같은 번호가 두 번 나옴: ${rpList(rp.dup)} — 강·번호가 어긋났을 수 있습니다`);
+  if (rp.guessed && rp.guessed.length) rpLines.push(`번호를 추정했거나 나누지 못한 문항 ${rp.guessed.length}개: ${rpList(rp.guessed)} — 노란 경고를 확인하세요`);
+  if (key && rp.noAns && rp.noAns.length) rpLines.push(`정답을 찾지 못한 문항 ${rp.noAns.length}개: ${rpList(rp.noAns)}`);
+  const rpHtml = rpLines.length ? `<div class="qb-warn qb-ebs-report"><b>⚠ 점검 결과</b><br>${rpLines.join('<br>')}</div>` : `<div class="qb-muted qb-ebs-report">✓ 점검: 코드 빠짐·번호 어긋남 없음${key ? ' · 정답 모두 찾음' : ''}</div>`;
+  out.innerHTML = `<div class="qb-paste-sum">EBS 교재 ${items.length}문항 (${groups.filter(g => g.k[0] !== 'T').length}강${groups.some(g => g.k[0] === 'T') ? ' + Test ' + groups.filter(g => g.k[0] === 'T').length + '회' : ''})${key ? ' · 같은 PDF에서 ' + (QB_EBS.keyQuick ? '정답' : '정답·해설') + ' ' + Object.keys(key).length + '문항' : ''}</div>${rpHtml}
     <div class="qb-ebs-opts">
       <label class="qb-label" for="qbEbsPrefix">문항 ID 앞부분</label>
       <input type="text" id="qbEbsPrefix" value="${qbAttr(pre)}" spellcheck="false" style="width:140px">
