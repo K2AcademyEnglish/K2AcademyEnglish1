@@ -365,6 +365,63 @@ function qbEbsStem(rows) {
   if (rows === 3) return '주어진 글 (A)에 이어질 내용을 순서에 맞게 배열한 것으로 가장 적절한 것은?';
   return '윗글의 제목으로 가장 적절한 것은?';
 }
+// 판형이 다른 EBS 교재(2026 수능특강 등)를 2027 판과 같은 줄 모양으로 맞춥니다.
+//  - "Gateway 2025학년도 수능 18번 25005-0001 다음 글의 …" 한 줄 → "Gateway" / "25005-0001 다음 글의 …"
+//  - 각주·옆면 단원 표시가 앞에 붙은 줄("∙craving: 갈망 Gateway …", "∙rote: 암기한윗글의 제목으로 …")은 나눕니다.
+//  - 질문 줄 다음에 번호만 있는 줄("01")이 오고 그다음이 문항 코드이면 → "<b>01</b> 질문"
+function qbEbsNormalize(lines) {
+  const out = [];
+  const QRE = /(윗글|다음 글|다음 도표|밑줄 친|주어진 글|글의 흐름|빈칸|\(A\)|[A-Z0-9][A-Za-z0-9.' ]+에 관한)/;
+  const qAt = (t, from) => { const re = new RegExp(QRE.source, 'g'); re.lastIndex = from || 0; let m; while ((m = re.exec(t))) { if (/[?？]\s*(\d{2})?\s*$/.test(t.slice(m.index))) return m.index; } return -1; };
+  lines = lines.slice();
+  for (let i = 0; i < lines.length; i++) {
+    let t = lines[i];
+    // 각주 줄 끝에 붙은 Gateway 풀이 머리말("∙crude: 투박한 Words & Phrases in Use")은 나눕니다.
+    const hm = t.match(/^(.+?)\s+((?:<[a-z]>)*(?:Words\s*&\s*Phrases in Use|Solving Strategies|Academic Vocabulary).*)$/);
+    if (hm) { out.push(hm[1]); t = hm[2]; }
+    // 질문이 두 줄로 나뉘고 번호가 첫 줄 끝에 붙은 경우: "… 가장 적 01" / "절한 것은?"
+    const w = t.match(/^(.*[가-힣])\s+(\d{2})$/);
+    if (w && !/[?？]/.test(w[1]) && i + 1 < lines.length && /^[가-힣][^?？]{0,30}[?？]\s*$/.test(lines[i + 1].trim()) && qAt(w[1] + lines[i + 1].trim()) >= 0) {
+      lines[i + 1] = w[1] + lines[i + 1].trim() + ' ' + w[2]; continue;
+    }
+    // "… 것은? 02" (번호가 질문 뒤에): 앞에 선택지 ⑤가 붙어 있으면 떼어 냅니다.
+    const e = t.match(/^(.*[가-힣].*[?？])\s*(\d{2})\s*$/);
+    if (e) {
+      let q = e[1];
+      const k = q.lastIndexOf('⑤');
+      if (k >= 0) { const at = qAt(q, k + 1); if (at > 0) { out.push(q.slice(0, at).trim()); q = q.slice(at); } }
+      out.push(q.trim()); out.push(e[2]);
+      continue;
+    }
+    const g = t.match(/^(.*?)(?:^|\s)G\s*ateway\s+\d{4}학년도\s*(?:수능|\d{1,2}월\s*모의평가|대학수학능력시험)?\s*\d{1,2}(?:\s*~\s*\d{1,2})?번\s*(.*)$/);
+    if (g) {
+      if (g[1].trim() && !/•/.test(g[1])) out.push(g[1].trim());   // 앞에 붙은 각주 (옆면 단원 표시 "01•글의 목적 파"는 버림)
+      out.push('Gateway');
+      if (g[2].trim()) out.push(g[2].trim());
+      continue;
+    }
+    // 각주 줄 끝에 질문이 붙은 경우
+    if (/^[∙•]/.test(t) && /[?？]\s*$/.test(t)) {
+      const plain = t;
+      let at = -1, m; const re = new RegExp(QRE.source, 'g');
+      while ((m = re.exec(plain))) { const rest = plain.slice(m.index); if (/[가-힣]/.test(rest) && /[?？]\s*$/.test(rest)) { at = m.index; break; } }
+      if (at > 0) { out.push(t.slice(0, at).trim()); out.push(t.slice(at).trim()); continue; }
+    }
+    out.push(t);
+  }
+  // 번호만 있는 줄을 앞 질문에 붙입니다.
+  const res = [];
+  out.forEach((t, i) => {
+    const n = t.trim().match(/^(?:<b>)?(\d{2})(?:<\/b>)?$/);
+    const prev = res[res.length - 1], next = out[i + 1] || '';
+    if (n && prev != null && /[가-힣]/.test(prev) && /([?？]|시오\.)\s*(\[\s*\d\s*점\s*\])?\s*$/.test(prev) && !/^<b>\d{2}<\/b>/.test(prev) && QB_EBS_CODE.test(next.trim())) {
+      res[res.length - 1] = '<b>' + n[1] + '</b> ' + prev.trim();
+      return;
+    }
+    res.push(t);
+  });
+  return res;
+}
 function qbParseEbs(text, opts) {
   opts = opts || {};
   let lines = String(text || '').replace(/\r\n?/g, '\n')
@@ -373,9 +430,26 @@ function qbParseEbs(text, opts) {
     .replace(/[ \t]+(?=<b>\d{2}<\/b>\s+(?:<u>)?[^\s<]*?[가-힣A-Za-z‘'“"])/g, '\n')
     .replace(/[ \t]+(?=\d{2}\s*~\s*\d{2}\s+다음 글을 읽고)/g, '\n')
     .split('\n');
+  lines = qbEbsNormalize(lines);
   const ks = qbEbsKeyStart(lines);
   const keyLines = ks >= 0 ? lines.slice(Math.max(0, ks - 2)) : [];
   if (ks >= 0) lines = lines.slice(0, Math.max(0, ks - 2));
+  // 해설이 없는 교재: 맨 끝 「빠른 정답」 표(Part I 유형편 / G 01 02 … / 01 ① ③ …)
+  let quickLines = [];
+  if (ks < 0) {
+    const plain = l => String(l || '').replace(/<[^>]+>/g, '').trim();
+    let lastCode = -1; lines.forEach((l, i) => { if (QB_EBS_CODE.test(l)) lastCode = i; });
+    let qs = -1;
+    for (let i = Math.max(0, lastCode); i < lines.length; i++) {
+      const t = plain(lines[i]);
+      if (/^Part\s*I\s*유형편$/.test(t) || /^G(\s+\d{2}){3,}/.test(t)) { qs = i; break; }
+    }
+    if (qs >= 0) {
+      // 마지막 문항(⑤ 선택지) 뒤 같은 줄에 붙은 표 머리는 버립니다.
+      quickLines = lines.slice(qs).map(plain);
+      lines = lines.slice(0, qs);
+    }
+  }
   // 책 끝 「빠른 정답」 표(<b>17</b> ⑤②③… / G 01 02 …)와 깨진 머리글(%68w…)에서도 멈춥니다.
   const isAnsTable = t => /^%68w/.test(t) || /^(<[a-z]>)*<b>G(\s+\d{2})+<\/b>/.test(t) ||
     /^(<b>[\d\s]+<\/b>\s*)?[①②③④⑤](\s*[①②③④⑤]){2,}/.test(t) || /^<b>\d{2}<\/b>\s*[①②③④⑤]\s*$/.test(t);
@@ -495,7 +569,72 @@ function qbParseEbs(text, opts) {
       out.push({ label: label(q), code: q.code, seq, num: seq, type: r.type, v: r.v, link: r.link, warnings: r.warnings, unit, test, mode });
     });
   });
-  return { items: out, key: keyLines.length ? qbParseEbsKey(keyLines.join('\n')) : null };
+  if (keyLines.length) return { items: out, key: qbParseEbsKey(keyLines.join('\n')) };
+  const quick = quickLines.length ? qbEbsQuickKey(quickLines, out) : null;
+  return { items: out, key: quick, keyQuick: !!quick };
+}
+// 「빠른 정답」 표 → { '1-G': {ans}, '1-1': {ans}, …, 'T1-1': {ans} }
+//  유형편·주제소재편: "01 ① ③ ③ ⑤ ⑤"(강 번호 뒤 Gateway, Exercises 순)
+//  장문 강처럼 Gateway가 여러 문항이면 "01 ②" "02 ⑤"처럼 따로 적힌 칸을 순서대로 씁니다.
+//  테스트편: 남은 원문자를 Test 1부터 28개씩.
+function qbEbsQuickKey(lines, items) {
+  const C = '①②③④⑤';
+  const toks = lines.join(' ').split(/\s+/).filter(Boolean).flatMap(t => /^[①②③④⑤]{2,}$/.test(t) ? t.split('') : [t]);
+  const isC = t => t && t.length === 1 && C.indexOf(t) >= 0;
+  const units = {};
+  items.forEach(it => { if (it.mode !== 'T') { (units[it.unit] = units[it.unit] || []).push(it.label); } });
+  const gCount = u => (units[u] || []).filter(l => /-G/.test(l)).length;
+  const groupedUnits = Object.keys(units).map(Number).filter(u => gCount(u) > 1).sort((a, b) => a - b);
+  const rows = {}, subs = [];
+  let i = 0, lastUnit = Math.max(0, ...Object.keys(units).map(Number)), doneUnits = false;
+  const circlesFrom = j => { const a = []; while (isC(toks[j])) a.push(toks[j++]); return { a, j }; };
+  while (i < toks.length && !doneUnits) {
+    const t = toks[i];
+    if (/^\d{1,2}$/.test(t)) {
+      const n = Number(t);
+      if (isC(toks[i + 1])) {
+        const r = circlesFrom(i + 1);
+        if (r.a.length === 1 && n <= 3 && groupedUnits.length) { subs.push([n, r.a[0]]); i = r.j; continue; }   // 장문 Gateway 칸 "01 ②"
+        if (units[n] && !rows[n]) { rows[n] = r.a; i = r.j; if (n === lastUnit) doneUnits = true; continue; }
+        i = r.j; continue;
+      }
+      // "20 02 ③ ⑤ …": 장문 강 번호 + Gateway 칸 번호
+      if (/^\d{2}$/.test(toks[i + 1] || '') && isC(toks[i + 2]) && units[n] && gCount(n) > 1 && Number(toks[i + 1]) <= 3) {
+        const r = circlesFrom(i + 2);
+        subs.push([Number(toks[i + 1]), r.a[0]]); rows[n] = r.a.slice(1); i = r.j; continue;
+      }
+    }
+    i++;
+  }
+  // Gateway 여러 칸을 장문 강에 나눠 줍니다(01이 다시 나오면 다음 강).
+  const subGroups = [];
+  subs.forEach(([n, c]) => { if (n === 1 || !subGroups.length) subGroups.push({}); subGroups[subGroups.length - 1][n] = c; });
+  const key = {};
+  const put = (label, c) => { if (label && c) key[label] = { ans: C.indexOf(c) + 1, topic: '', trans: '', expl: '', struct: '', note: '', group: null, head: null }; };
+  Object.keys(units).map(Number).forEach(u => {
+    const labels = units[u], g = labels.filter(l => /-G/.test(l)), ex = labels.filter(l => !/-G/.test(l));
+    const row = rows[u] || [];
+    if (g.length > 1) {
+      const sg = subGroups[groupedUnits.indexOf(u)] || {};
+      g.forEach((l, k) => put(l, sg[k + 1]));
+      ex.forEach((l, k) => put(l, row[k]));
+    } else {
+      g.forEach(l => put(l, row[0]));
+      ex.forEach((l, k) => put(l, row[k + 1]));
+    }
+  });
+  // 테스트편
+  const rest = toks.slice(i).filter(isC);
+  const tests = {};
+  items.forEach(it => { if (it.mode === 'T') (tests[it.test] = tests[it.test] || []).push(it); });
+  let p = 0;
+  Object.keys(tests).map(Number).sort((a, b) => a - b).forEach(t => {
+    const list = tests[t].slice().sort((a, b) => Number(a.label.split('-')[1]) - Number(b.label.split('-')[1]));
+    const nMax = Math.max(...list.map(x => Number(x.label.split('-')[1])));
+    const ans = rest.slice(p, p + nMax); p += nMax;
+    list.forEach(x => put(x.label, ans[Number(x.label.split('-')[1]) - 1]));
+  });
+  return Object.keys(key).length ? key : null;
 }
 
 /* EBS 「정답과 해설」 → { '1-G': {ans, topic, trans, expl, struct}, '1-1': …, 'T1-5': … }
@@ -843,6 +982,13 @@ async function qbPdfToText(pdfjs, data, opts) {
     const ops = await page.getOperatorList();
     const seg = qbPdfSegments(ops, pdfjs.OPS);
     const chars = qbPdfChars(ops, pdfjs.OPS, qbFontStyleFn(page));
+    // 페이지 상자가 (0,0)에서 시작하지 않는 PDF(재단 여백이 있는 인쇄용 등)는 좌표를 상자 기준으로 옮깁니다.
+    const ox = (page.view && page.view[0]) || 0, oy = (page.view && page.view[1]) || 0;
+    if (ox || oy) {
+      chars.forEach(c => { c.x0 -= ox; c.x1 -= ox; c.y -= oy; });
+      seg.vs.forEach(v => { v.x -= ox; v.y0 -= oy; v.y1 -= oy; });
+      seg.hs.forEach(h => { h.x0 -= ox; h.x1 -= ox; h.y -= oy; });
+    }
     // 단 구분선: 페이지 가운데 근처의 가장 긴 세로선
     const mid = vp.width / 2;
     const gut = seg.vs.filter(v => Math.abs(v.x - mid) < vp.width * 0.12).sort((a, b) => (b.y1 - b.y0) - (a.y1 - a.y0))[0];
@@ -1055,6 +1201,12 @@ async function qbKeyLines(pdfjs, data) {
     const ops = await page.getOperatorList();
     const seg = qbPdfSegments(ops, pdfjs.OPS);
     const chars = qbPdfChars(ops, pdfjs.OPS);
+    const ox = (page.view && page.view[0]) || 0, oy = (page.view && page.view[1]) || 0;
+    if (ox || oy) {
+      chars.forEach(c => { c.x0 -= ox; c.x1 -= ox; c.y -= oy; });
+      seg.vs.forEach(v => { v.x -= ox; v.y0 -= oy; v.y1 -= oy; });
+      seg.hs.forEach(h => { h.x0 -= ox; h.x1 -= ox; h.y -= oy; });
+    }
     // 단 구분: 길게 그어진 세로선들 (없으면 1단)
     const cuts = [];
     seg.vs.filter(v => v.y1 - v.y0 > vp.height * 0.4 && v.x > vp.width * 0.15 && v.x < vp.width * 0.85)
@@ -2744,7 +2896,12 @@ function qbEbsPrefixGuess(text) {
   const base = QB.sheet ? QB.sheet.name.replace(/[가-힣]+$/, '') : '';
   if (/^[hm][1-3]_\d{2}_[A-Za-z]+/.test(base)) return base;
   const m = String(text).match(/(\d{2})(\d{2})학년도\s*EBS\s*(수능특강|수능완성)/);
-  return m ? 'h3_' + m[2] + '_' + (m[3] === '수능완성' ? 'SW' : 'ST') : (base || 'EBS');
+  if (m) return 'h3_' + m[2] + '_' + (m[3] === '수능완성' ? 'SW' : 'ST');
+  // 학년도 표기가 없으면 문항 코드 앞 두 자리(발행 연도)로: 25005-0001 → 2026학년도 → h3_26_ST
+  const c = String(text).match(/\b(\d{2})\d{3}-\d{4}\b/);
+  const kind = /수능완성/.test(text) && !/수능특강/.test(text) ? 'SW' : /수능특강/.test(text) ? 'ST' : '';
+  if (c && kind && !base) return 'h3_' + String(Number(c[1]) + 1).padStart(2, '0') + '_' + kind;
+  return base || 'EBS';
 }
 function qbEbsSheetCol(id) {
   return QB.sheet ? QB.sheet.cols.find(c => (QB.work[c.col] ? QB.work[c.col].v[0] : c.v[0]) === id) : null;
@@ -2770,7 +2927,7 @@ function qbEbsRender() {
       <label class="qb-label" for="qbEbsPrefix">문항 ID 앞부분</label>
       <input type="text" id="qbEbsPrefix" value="${qbAttr(pre)}" spellcheck="false" style="width:140px">
       <span class="qb-muted">예: ${qbEsc(pre)}_1-G, ${qbEsc(pre)}_1-1, ${qbEsc(pre)}_T1-1</span>
-      ${key ? '<label class="qb-check"><input type="checkbox" id="qbEbsKey" checked> 정답·해설(해석+풀이)도 넣기</label>' : ''}
+      ${key ? `<label class="qb-check"><input type="checkbox" id="qbEbsKey" checked> ${QB_EBS.keyQuick ? '정답도 넣기 <span class="qb-muted">(책 끝 빠른 정답표 · 해설 없음)</span>' : '정답·해설(해석+풀이)도 넣기'}</label>` : ''}
     </div>` +
     groups.map(g => {
       const first = items[g.rows[0]];
