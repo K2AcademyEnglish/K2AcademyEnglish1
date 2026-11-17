@@ -690,7 +690,53 @@ function qbEbsQuickKey(lines, items) {
  * 강 머리말 "<b>01</b> 글의 목적 파악", 문항 "<b>G</b> ateway" / "<b>01</b>" / "<b>01~02</b>",
  * 칸: 정답 · 소재 · 해석 · Solution Guide · Structure in Focus · Culture Note
  */
+// 판형이 다른 「정답과 해설」(2026 수능특강 등)을 2027 판 줄 모양으로 맞춥니다.
+//  - 밑줄 태그(<u>)가 머리말에 섞인 것("<u>01\n정답</u> ③<u>소재</u> …")을 걷어 내고
+//  - "정답 ③ 소재 …"처럼 한 줄에 붙은 칸을 나누고
+//  - 굵게 표시가 없는 강 머리말·번호·Gateway·Exercises를 2027 판 모양(<b>01</b> …)으로 바꿉니다.
+function qbEbsKeyNormalize(text) {
+  // 줄 끝에 붙은 문항 번호("…분사구문이다. <u>03" + 다음 줄 "정답</u> ③")는 떼어 냅니다.
+  // 머리말 낱말·번호에 걸친 밑줄만 걷어 냅니다. (해석 속 밑줄 친 표현은 그대로)
+  const HW = '(?:정답|소재|해석|Exercises|Solution Guide|Structure in Focus|Culture Note)';
+  const unU = l => l.replace(new RegExp('<u>(\\s*' + HW + ')', 'g'), '$1').replace(new RegExp('(' + HW + ')\\s*</u>', 'g'), '$1')
+    .replace(/^\s*<u>(\d{2}(?:\s*~\s*\d{2})?)\s*(<\/u>)?\s*$/, '$1').replace(/<u>\s*<\/u>/g, '');
+  const raw = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const src = [];
+  raw.forEach((l, i) => {
+    const m = l.match(/^(.*[^\s\d~])\s*(?:<u>)?(\d{2}(?:\s*~\s*\d{2})?)(?:<\/u>)?\s*$/);
+    if (m && /^(<u>)?정답/.test((raw[i + 1] || '').trim())) { src.push(unU(m[1])); src.push(m[2]); }
+    else src.push(unU(l));
+  });
+  const out = [];
+  const SEC = '(소재|해석|Solution Guide|Structure in Focus|Culture Note)';
+  for (let i = 0; i < src.length; i++) {
+    let t = src[i].trim();
+    if (!t) continue;
+    // TEST 1 본문 170~191쪽 01 ② … 28 ⑤01  → 끝에 붙은 첫 문항 번호를 떼어 냅니다.
+    let m = t.match(/^(TEST\s*(?:<b>)?\d(?:<\/b>)?.*[①②③④⑤])\s*(\d{2})$/i);
+    if (m) { out.push(m[1]); out.push('<b>' + m[2] + '</b>'); continue; }
+    // 강 머리말: "01 글의 목적 파악" 다음 줄이 Gateway
+    m = t.match(/^(\d{2})\s+([가-힣][가-힣·,()\s\d]*)$/);
+    if (m && /^(<b>)?G\s*ateway/.test((src[i + 1] || '').trim())) { out.push('<b>' + m[1] + '</b> ' + m[2]); continue; }
+    // Gateway 본문 10쪽
+    if (/^G\s*ateway\s+본문\s*\d+/.test(t)) { out.push('<b>G</b> ateway ' + t.replace(/^G\s*ateway\s+/, '')); continue; }
+    // 본문 12~15쪽 Exercises
+    if (/^본문\s*[\d~\s]+쪽\s*E\s*xercises$/.test(t)) { out.push('<b>E</b> xercises'); continue; }
+    // 번호만 있는 줄: 01 / 01~03
+    m = t.match(/^(\d{2}(?:\s*~\s*\d{2})?)$/);
+    if (m && /^정답/.test((src[i + 1] || '').replace(/<\/?u>/g, '').trim())) { out.push('<b>' + m[1].replace(/\s/g, '') + '</b>'); continue; }
+    if (m && /^(\d{2}~\d{2})$/.test(m[1].replace(/\s/g, ''))) { out.push('<b>' + m[1].replace(/\s/g, '') + '</b>'); continue; }
+    // "정답 ③소재 …" / "정답 01 ⑤ 02 ②소재 …"
+    m = t.match(new RegExp('^(정답\\s*(?:[①②③④⑤]|(?:\\d{2}\\s*[①②③④⑤]\\s*)+))\\s*' + SEC + '\\s*(.*)$'));
+    if (m) { out.push(m[1].trim()); out.push((m[2] + ' ' + m[3]).trim()); continue; }
+    m = t.match(new RegExp('^(.+?)\\s*' + '(Solution Guide|Structure in Focus|Culture Note)$'));
+    if (m && /[가-힣]/.test(m[1])) { out.push(m[1]); out.push(m[2]); continue; }
+    out.push(t);
+  }
+  return out.join('\n');
+}
 function qbParseEbsKey(text) {
+  text = qbEbsKeyNormalize(text);
   const lines = String(text || '').replace(/\r\n?/g, '\n')
     .replace(/[ \t]+(?=<b>\d{2}(?:~\d{2})?<\/b>\s*$)/gm, '\n')
     .replace(/[ \t]+(?=<b>\d{2}<\/b>\s+[가-힣][가-힣·,()\s\d]*$)/gm, '\n')      // 줄 끝에 붙은 강 머리말
@@ -741,6 +787,8 @@ function qbParseEbsKey(text) {
     const multi = it.labels.length > 1;
     let expl = it.expl.join('\n');
     if (multi) {
+      // 앞 문항 풀이 끝에 다음 번호가 이어 붙은 경우("…적절하다. 05 (a), (b)…")도 나눕니다.
+      (it.nums || []).forEach(k => { expl = expl.replace(new RegExp('([.다)])\\s+(' + String(k).padStart(2, '0') + ')\\s', 'g'), '$1\n$2 '); });
       const parts = expl.split(/\n?(?=^\d{2}\s)/m);
       const mine = parts.find(p => Number(p.slice(0, 2)) === n);
       expl = mine ? mine.replace(/^\d{2}\s+/, '') : '';
@@ -1129,7 +1177,17 @@ async function qbPdfToText(pdfjs, data, opts) {
         if (openB) html += '</b>';
         // 글꼴 전용 기호로 된 글머리표(줄 맨 앞) → ∙
         const PUA = /[\uE000-\uF8FF]|[\uDB80-\uDBFF][\uDC00-\uDFFF]/;
-        if (words.length > 1 && PUA.test(words[0].cs.map(c => c.ch).join('')) && words[0].cs.length <= 2) { html = html.replace(new RegExp('^((?:<[a-z]+>)*)(?:' + PUA.source + ')+\\s*'), '$1∙'); plain = plain.replace(new RegExp('^(?:' + PUA.source + ')+\\s*'), '∙'); }
+        // 글꼴 전용 기호로 된 각주 별표: 본문보다 작은 글씨 줄이 기호로 시작하고 "낱말: 뜻" 꼴이면 기호 개수만큼 *로 (예: * soft shoulder: … ** duple: …)
+        const lineSz = l.cs.map(c => c.size).sort((a, b) => a - b)[Math.floor(l.cs.length / 2)];
+        const starRun = new RegExp('(?:' + PUA.source + ')(?:\\s?(?:' + PUA.source + '))*', 'g');
+        // "낱말: 뜻"이든 "낱말 뜻"이든: 기호 다음이 영어로 시작하고 줄에 한글 뜻이 있으면 각주입니다. (한글로 시작하는 풀이 글머리표 ∙는 그대로)
+        const afterStar = plain.replace(new RegExp('^(?:' + PUA.source + '|\\s)+'), '');
+        // 영어 낱말 뒤에 띄어 쓰고 한글 뜻(조사로 바로 붙은 "Enberg는 …" 같은 문장, 마침표로 끝나는 "~다." 풀이는 제외)
+        const footLike = /:/.test(plain) || (/^[A-Za-z(‘'"“][A-Za-z\s\-'’.,()/]*\s+[~(]?\s*[가-힣(~]/.test(afterStar) && !/다\.\s*$/.test(afterStar));
+        if (words.length > 1 && PUA.test(words[0].cs[0].ch) && lineSz < sz * 0.95 && footLike) {
+          const toStars = t => t.replace(starRun, r => '*'.repeat((r.match(new RegExp(PUA.source, 'g')) || []).length) + ' ');
+          html = toStars(html).replace(/\* {2,}/g, '* '); plain = toStars(plain).replace(/\* {2,}/g, '* ');
+        } else if (words.length > 1 && PUA.test(words[0].cs.map(c => c.ch).join('')) && words[0].cs.length <= 2) { html = html.replace(new RegExp('^((?:<[a-z]+>)*)(?:' + PUA.source + ')+\\s*'), '$1∙'); plain = plain.replace(new RegExp('^(?:' + PUA.source + ')+\\s*'), '∙'); }
         const wholeBold = words.length > 0 && nBold === words.length;
         const startsBold = /^<b>/.test(html);
         const x0 = l.cs[0].x0, x1 = l.cs[l.cs.length - 1].x1;
