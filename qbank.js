@@ -1278,7 +1278,7 @@ function qbMissing(w) {
 }
 
 const QB = {
-  missCount: {},
+  missCount: {}, multi: new Set(), anchor: null, drag: null,
   sheets: [], sheet: null, sel: null, work: {}, drafts: [], seq: 0, busy: false, showAns: true, bound: false, focus: null, prevMode: 'print'
 };
 
@@ -1442,6 +1442,19 @@ function initQbankPage() {
   qbRenderShell();
   qbBind();
   if (!QB.sheets.length) qbLoadSheets();
+  requestAnimationFrame(qbFitLayout);
+}
+// 편집기를 화면 높이에 딱 맞춥니다. 목록·입력칸·미리보기가 각자 스크롤되고, 페이지 전체는 늘어나지 않습니다.
+// (좁은 화면 820px 이하는 예전처럼 위아래로 이어서 스크롤)
+function qbFitLayout() {
+  const lay = document.querySelector('#qbankPage .qb-layout');
+  if (!lay || !lay.offsetParent) return;
+  if (window.innerWidth <= 820) { lay.style.removeProperty('--qb-fit-h'); return; }
+  const top = lay.getBoundingClientRect().top + window.scrollY;
+  const page = document.getElementById('qbankPage');
+  const cs = getComputedStyle(page), bs = getComputedStyle(document.body);
+  const bottom = (parseFloat(cs.paddingBottom) || 0) + (parseFloat(cs.marginBottom) || 0) + (parseFloat(bs.paddingBottom) || 0) + 1;
+  lay.style.setProperty('--qb-fit-h', Math.max(460, Math.floor(window.innerHeight - top - bottom)) + 'px');
 }
 function qbLoadSheets(keepSel) {
   qbBusy(true, '시트 목록을 받는 중...');
@@ -1560,6 +1573,10 @@ function qbRenderList() {
     const opt = s && sel ? [...sel.options].find(o => o.value === s.name) : null;
     if (opt) opt.textContent = (missN ? '🟡 ' : '') + s.name + ' (' + s.count + ')';
   } else QB.missCount[QB.sheet.name] = missN;
+  const allKeys = new Set(qbListItems().map(it => it.key));
+  QB.multi = new Set([...QB.multi].filter(k => allKeys.has(k)));
+  if (QB.sel != null && !allKeys.has(QB.sel)) QB.sel = null;
+  const many = QB.multi.size > 1;
   const rows = qbListItems().filter(it => {
     if (!needle) return true;
     const w = QB.work[it.key] || (it.col ? it.col : it.draft.base);
@@ -1578,7 +1595,8 @@ function qbRenderList() {
     const miss = missOf(it);
     const dot = miss.length ? `<span class="qb-miss-dot" title="비어 있음: ${qbAttr(miss.join(', '))}" aria-label="비어 있음: ${qbAttr(miss.join(', '))}"></span>` : '';
     const stem = String(w.v[5] || '').replace(/<[^>]+>/g, '').slice(0, 40);
-    return `<button type="button" class="qb-item${QB.sel === it.key ? ' active' : ''}${it.col && it.col.hidden ? ' is-hidden' : ''}" data-qb-item="${qbAttr(it.key)}">
+    const picked = many ? QB.multi.has(it.key) : QB.sel === it.key;
+    return `<button type="button" class="qb-item${picked ? ' active' : ''}${many && QB.sel === it.key ? ' is-current' : ''}${it.col && it.col.hidden ? ' is-hidden' : ''}" data-qb-item="${qbAttr(it.key)}"${it.col ? ' data-drag="1"' : ''}>
       <span class="qb-item-top">${dot}<b>${qbEsc(label)}</b><span class="qb-item-type">${qbEsc(w.v[2] || '유형 없음')}</span>${w.v[4] ? `<span class="qb-item-diff">난이도 ${qbEsc(w.v[4])}</span>` : ''}${chips.join('')}</span>
       <span class="qb-item-stem">${qbEsc(stem || '(질문 없음)')}</span></button>`;
   });
@@ -1627,6 +1645,7 @@ function qbFieldHtml(key, r, w, o) {
 function qbRenderForm() {
   const main = document.getElementById('qbMain');
   if (!main) return;
+  if (QB.multi.size > 1) { qbRenderMultiForm(main); qbRenderPreview(); return; }
   const key = QB.sel;
   const w = key != null ? qbWork(key) : null;
   if (!w) { main.innerHTML = '<div class="qb-empty">문항을 고르거나 새 문항을 추가하세요.</div>'; qbRenderPreview(); return; }
@@ -1960,10 +1979,190 @@ let _qbListTimer = 0;
 function qbRefreshListItem() { clearTimeout(_qbListTimer); _qbListTimer = setTimeout(qbRenderList, 300); }
 function qbSelect(key) {
   QB.sel = key;
+  QB.multi = new Set(key != null ? [key] : []);
+  QB.anchor = key;
   QB.focus = null;
   qbRenderList(); qbRenderForm();
   const main = document.getElementById('qbMain');
   if (main) main.scrollTop = 0;
+}
+
+/* ---------- 여러 문항 고르기 (Shift: 범위 · Ctrl/⌘: 하나씩 더하기·빼기) ---------- */
+function qbClickItem(key, e) {
+  const shown = [...document.querySelectorAll('#qbList [data-qb-item]')].map(x => x.dataset.qbItem);
+  const add = e.ctrlKey || e.metaKey;
+  if (e.shiftKey && QB.anchor != null && shown.indexOf(QB.anchor) !== -1) {
+    const a = shown.indexOf(QB.anchor), b = shown.indexOf(key);
+    const range = shown.slice(Math.min(a, b), Math.max(a, b) + 1);
+    if (add) range.forEach(k => QB.multi.add(k)); else QB.multi = new Set(range);
+    QB.sel = key;
+  } else if (add) {
+    if (!QB.multi.size && QB.sel != null) QB.multi.add(QB.sel);
+    if (QB.multi.has(key)) {
+      QB.multi.delete(key);
+      if (QB.sel === key) QB.sel = [...QB.multi].pop() || null;
+    } else { QB.multi.add(key); QB.sel = key; }
+    QB.anchor = key;
+  } else { qbSelect(key); return; }
+  if (QB.multi.size <= 1) { qbSelect(QB.sel); return; }
+  QB.focus = null;
+  qbRenderList(); qbRenderForm();
+}
+function qbMultiKeys() {
+  const order = qbListItems().map(it => it.key);
+  return order.filter(k => QB.multi.has(k));
+}
+function qbRenderMultiForm(main) {
+  const keys = qbMultiKeys();
+  const saved = keys.filter(k => !qbIsDraft(k));
+  const nHidden = saved.filter(k => { const c = QB.sheet.cols.find(x => x.col === Number(k)); return c && c.hidden; }).length;
+  const label = k => { const w = qbWork(k); return qbShortId(w && w.v[0]) || (qbIsDraft(k) ? '(새 문항)' : qbColLetter(Number(k) + 1) + '열'); };
+  const same = r => { const vals = [...new Set(keys.map(k => String((qbWork(k) || { v: [] }).v[r] || '')))]; return vals.length === 1 ? vals[0] : ''; };
+  const types = [...new Set((QB.sheet ? QB.sheet.cols : []).map(c => c.v[2]).filter(Boolean))];
+  main.innerHTML = `
+    <div class="qb-sticky"><div class="qb-form-head">
+      <div><div class="qb-form-title"><b>${keys.length}문항 선택</b></div>
+        <div class="qb-muted qb-where">Shift+클릭: 범위 · Ctrl(⌘)+클릭: 하나씩 더하기·빼기 · 끌어서 순서 바꾸기</div></div>
+      <div class="qb-form-actions"><button type="button" class="qb-btn" data-qb="multi-clear">선택 해제</button></div>
+    </div></div>
+    <div class="qb-multi-chips">${keys.map(k => `<span class="qb-chip">${qbEsc(label(k))}</span>`).join('')}</div>
+    <div class="qb-multi-box">
+      <div class="qb-multi-title">한꺼번에 입력 <span class="qb-muted">— 적은 칸만 바꿉니다. 비워 두면 그대로 둡니다. 다른 문항에서 가져오는 🔗 칸은 건너뜁니다.</span></div>
+      <div class="qb-multi-grid">
+        <label>난이도 <input type="number" id="qbMulti4" min="1" max="15" placeholder="${qbAttr(same(4) || '여러 값')}"></label>
+        <label>유형 <input type="text" id="qbMulti2" list="qbMultiTypes" placeholder="${qbAttr(same(2) || '여러 값')}"></label>
+        <label class="qb-multi-wide">출처 <input type="text" id="qbMulti1" list="qbSourceList" placeholder="${qbAttr(same(1) || '여러 값')}"></label>
+      </div>
+      <datalist id="qbMultiTypes">${types.map(t => `<option value="${qbAttr(t)}">`).join('')}</datalist>
+      <div class="qb-multi-foot"><button type="button" class="qb-btn qb-btn-primary" data-qb="multi-apply">${keys.length}문항에 넣기</button>
+        <span class="qb-muted">넣은 뒤 [모두 저장]을 눌러야 시트에 들어갑니다.</span></div>
+    </div>
+    ${saved.length ? `<div class="qb-multi-box">
+      <div class="qb-multi-title">숨기기 <span class="qb-muted">— 출제 목록에서 빼거나 되살립니다. 학생 기록은 그대로입니다.</span></div>
+      <div class="qb-multi-foot">
+        <button type="button" class="qb-btn" data-qb="multi-hide" data-qb-busy${saved.length - nHidden ? '' : ' disabled'}>숨기기 (${saved.length - nHidden})</button>
+        <button type="button" class="qb-btn" data-qb="multi-show" data-qb-busy${nHidden ? '' : ' disabled'}>되살리기 (${nHidden})</button>
+      </div></div>` : ''}
+    <div class="qb-multi-box qb-multi-tip">↕ 목록에서 고른 문항을 끌어다 놓으면 시트의 열 순서가 바뀝니다. 여러 개를 고른 채 끌면 함께 옮겨집니다.</div>`;
+}
+function qbMultiApply() {
+  const keys = qbMultiKeys();
+  const vals = {};
+  [[4, 'qbMulti4'], [2, 'qbMulti2'], [1, 'qbMulti1']].forEach(([r, id]) => { const el = document.getElementById(id); const v = el ? el.value.trim() : ''; if (v) vals[r] = v; });
+  if (!Object.keys(vals).length) { showToast('바꿀 칸(난이도·유형·출처)을 하나 이상 적어 주세요.', 'error'); return; }
+  if (vals[4] && !(Number(vals[4]) >= 1 && Number(vals[4]) <= 15)) { showToast('난이도는 1~15로 적어 주세요.', 'error'); return; }
+  let n = 0, skipped = 0;
+  keys.forEach(k => {
+    const w = qbWork(k);
+    if (!w) return;
+    let touched = false;
+    Object.keys(vals).forEach(r => { if (w.f[r]) { skipped++; return; } w.v[r] = vals[r]; touched = true; });
+    if (touched) n++;
+  });
+  qbRenderList(); qbRenderForm();
+  showToast(`${n}문항에 넣었습니다.${skipped ? ' (🔗 연결 칸 ' + skipped + '개는 건너뜀)' : ''} [모두 저장]을 눌러야 시트에 들어갑니다.`, 'info');
+}
+function qbMultiHidden(hide) {
+  const cols = qbMultiKeys().filter(k => !qbIsDraft(k)).map(Number).filter(c => {
+    const x = QB.sheet.cols.find(y => y.col === c); return x && !!x.hidden !== hide;
+  });
+  if (!cols.length) return;
+  const run = () => {
+    let i = 0;
+    const next = () => {
+      if (i >= cols.length) {
+        qbBusy(false); qbRenderList(); qbRenderForm(); qbAfterBankChange();
+        showToast(`${cols.length}문항을 ${hide ? '숨겼습니다' : '되살렸습니다'}.`, 'info'); return Promise.resolve();
+      }
+      const c = cols[i++];
+      qbBusy(true, `${hide ? '숨기는' : '되살리는'} 중... (${i}/${cols.length})`);
+      return qbCall('qbSetHidden', [QB.sheet.name, c, !!hide]).then(res => { QB.sheet = res.sheet; delete QB.work[String(c)]; return next(); });
+    };
+    next().catch(err => { qbBusy(false); qbRenderList(); qbRenderForm(); showToast(qbEsc(err.message || err), 'error'); });
+  };
+  if (hide) showCustomConfirm(`${cols.length}문항을 숨길까요?<br>출제 목록에서 빠지고, 학생 풀이 기록·과제는 그대로 남습니다.`, run); else run();
+}
+
+/* ---------- 끌어서 순서 바꾸기 (시트 열 순서) ---------- */
+// 마우스로 누른 채 6px 넘게 움직이면 끌기 시작 (브라우저 기본 끌어놓기 대신 직접 처리: 모든 브라우저에서 같게 동작)
+function qbBindDrag(page) {
+  let st = null;
+  const clear = () => {
+    page.querySelectorAll('.qb-item.drop-before, .qb-item.drop-after, .qb-item.dragging').forEach(x => x.classList.remove('drop-before', 'drop-after', 'dragging'));
+    document.body.classList.remove('qb-dragging');
+  };
+  const itemAt = (x, y) => { const el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('#qbList [data-qb-item]') : null; };
+  page.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || QB.busy) return;
+    const it = e.target.closest && e.target.closest('#qbList [data-qb-item]');
+    if (!it || qbIsDraft(it.dataset.qbItem)) return;
+    st = { key: it.dataset.qbItem, x: e.clientX, y: e.clientY, active: false, target: null };
+  });
+  window.addEventListener('pointermove', e => {
+    if (!st) return;
+    if (!st.active) {
+      if (Math.abs(e.clientY - st.y) < 6 && Math.abs(e.clientX - st.x) < 6) return;
+      st.active = true;
+      st.keys = QB.multi.size > 1 && QB.multi.has(st.key) ? qbMultiKeys().filter(k => !qbIsDraft(k)) : [st.key];
+      st.keys.forEach(k => { const el = page.querySelector(`#qbList [data-qb-item="${CSS.escape(k)}"]`); if (el) el.classList.add('dragging'); });
+      document.body.classList.add('qb-dragging');
+    }
+    e.preventDefault();
+    const list = document.getElementById('qbList');
+    if (list) {   // 목록 위·아래 끝에 가면 저절로 스크롤
+      const r = list.getBoundingClientRect();
+      if (e.clientY < r.top + 28) list.scrollTop -= 14; else if (e.clientY > r.bottom - 28) list.scrollTop += 14;
+    }
+    const it = itemAt(e.clientX, e.clientY);
+    page.querySelectorAll('.qb-item.drop-before, .qb-item.drop-after').forEach(x => { if (x !== it) x.classList.remove('drop-before', 'drop-after'); });
+    st.target = null;
+    if (it && !qbIsDraft(it.dataset.qbItem) && st.keys.indexOf(it.dataset.qbItem) === -1) {
+      const b = it.getBoundingClientRect(), after = e.clientY > b.top + b.height / 2;
+      it.classList.toggle('drop-after', after);
+      it.classList.toggle('drop-before', !after);
+      st.target = { key: it.dataset.qbItem, after: after };
+    }
+  }, { passive: false });
+  window.addEventListener('pointerup', () => {
+    if (!st) return;
+    const s = st; st = null;
+    if (!s.active) return;
+    clear();
+    QB.suppressClick = true;                 // 끌기를 마친 뒤 따라오는 클릭은 무시
+    setTimeout(() => { QB.suppressClick = false; }, 0);
+    if (s.target) qbReorder(s.keys, s.target.key, s.target.after);
+  });
+  window.addEventListener('pointercancel', () => { if (st) { st = null; clear(); } });
+}
+function qbReorder(keys, targetKey, after) {
+  if (!QB.sheet || QB.busy) return;
+  if (qbDirtyKeys().length) { showToast('저장하지 않은 변경이 있습니다. [모두 저장]을 누른 뒤 순서를 바꿔 주세요.', 'error'); return; }
+  const cols = QB.sheet.cols.map(c => c.col);
+  const moving = keys.map(Number).filter(c => cols.indexOf(c) !== -1).sort((a, b) => cols.indexOf(a) - cols.indexOf(b));
+  const target = Number(targetKey);
+  if (!moving.length || moving.indexOf(target) !== -1) return;
+  const rest = cols.filter(c => moving.indexOf(c) === -1);
+  let at = rest.indexOf(target) + (after ? 1 : 0);
+  const order = rest.slice(0, at).concat(moving, rest.slice(at));
+  if (order.every((c, i) => c === cols[i])) return;
+  const label = c => { const x = QB.sheet.cols.find(y => y.col === c); return qbShortId(x && x.v[0]) || qbColLetter(c + 1) + '열'; };
+  const first = order.findIndex((c, i) => c !== cols[i]);
+  let last = order.length - 1; while (last > first && order[last] === cols[last]) last--;
+  const shifted = last - first + 1;
+  showCustomConfirm(`<b>${moving.length === 1 ? qbEsc(label(moving[0])) : moving.length + '문항'}</b>을(를) <b>${qbEsc(label(target))}</b> ${after ? '뒤로' : '앞으로'} 옮길까요?<br>` +
+    `<span style="font-size:13px;color:#64748b;">시트의 열 순서가 바뀌어 자리가 바뀌는 ${shifted}문항의 QID(시트!열번호)가 바뀝니다.<br>그중 학생 과제·풀이 기록이 있는 문항이 있으면 옮기지 않습니다.</span>`, () => {
+    qbBusy(true, '순서를 바꾸는 중...');
+    qbCall('qbMoveColumns', [QB.sheet.name, order, QB.sheet.cols.map(c => c.v[0])]).then(sh => {
+      QB.sheet = sh; QB.work = {};
+      const newKey = c => String(order.indexOf(c) + 1);
+      QB.multi = new Set(moving.map(newKey));
+      QB.sel = newKey(moving[0]); QB.anchor = QB.sel;
+      qbRenderList(); qbRenderForm();
+      qbAfterBankChange();
+      showToast(`${moving.length}문항을 옮겼습니다.`, 'info');
+    }).catch(err => showCustomAlert('순서를 바꾸지 못했습니다.<br>' + String(err && err.message || err)))
+      .finally(() => qbBusy(false));
+  });
 }
 
 /* ---------- 새 문항 · 붙여넣기 초안 ---------- */
@@ -2710,8 +2909,13 @@ function qbBind() {
   page.addEventListener('focusin', e => {
     if (e.target.closest('#qbMain') && e.target.dataset && e.target.dataset.row != null) QB.focus = e.target;
   });
-  // 태그 버튼을 눌러도 입력칸의 선택 영역이 풀리지 않게 합니다.
-  page.addEventListener('mousedown', e => { if (e.target.closest('.qb-tb')) e.preventDefault(); });
+  // 태그 버튼을 눌러도 입력칸의 선택 영역이 풀리지 않게 합니다. (목록 Shift 클릭 때 글자가 긁히지 않게도)
+  page.addEventListener('mousedown', e => {
+    if (e.target.closest('.qb-tb')) e.preventDefault();
+    if ((e.shiftKey || e.ctrlKey || e.metaKey) && e.target.closest('[data-qb-item]')) e.preventDefault();
+  });
+  qbBindDrag(page);
+  window.addEventListener('resize', () => { clearTimeout(QB.fitT); QB.fitT = setTimeout(qbFitLayout, 120); });
   page.addEventListener('keydown', e => {
     const mod = e.ctrlKey || e.metaKey;
     if (mod && (e.key === 's' || e.key === 'S')) {
@@ -2728,7 +2932,7 @@ function qbBind() {
   });
   page.addEventListener('click', e => {
     const item = e.target.closest('[data-qb-item]');
-    if (item) { qbSelect(item.dataset.qbItem); return; }
+    if (item) { if (!QB.suppressClick) qbClickItem(item.dataset.qbItem, e); return; }
     const tag = e.target.closest('.qb-tb');
     if (tag) {
       if (tag.dataset.qbIns) { const el = qbTarget(); if (el) qbReplaceSel(el, () => ({ text: tag.dataset.qbIns })); return; }
@@ -2764,6 +2968,10 @@ function qbBind() {
     else if (act === 'save-one' && key != null) qbSave([key]);
     else if (act === 'revert' && key != null) { delete QB.work[key]; qbRenderList(); qbRenderForm(); }
     else if (act === 'drop-draft' && key != null) showCustomConfirm('이 새 문항을 버릴까요? (시트에는 아직 저장되지 않았습니다)', () => qbDropDraft(key));
+    else if (act === 'multi-clear') qbSelect(QB.sel);
+    else if (act === 'multi-apply') qbMultiApply();
+    else if (act === 'multi-hide') qbMultiHidden(true);
+    else if (act === 'multi-show') qbMultiHidden(false);
     else if (act === 'hide') qbSetHidden(true);
     else if (act === 'unhide') qbSetHidden(false);
     else if (act === 'img-insert') qbInsertImage();

@@ -70,7 +70,7 @@ const ADMIN_API_ = new Set([
   'loadWeeklyStudentBundle', 'updateMasterIndex', 'getWeeklyReportData',
   'getQuestionMetaIndex', 'getStudentQuestionStats', 'loadWeeklyStudentStats', 'getAssignmentResult',
   'deleteWord',
-  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden',
+  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden', 'qbMoveColumns',
   'deleteAssignments'
 ]);
 
@@ -4178,4 +4178,75 @@ function deleteAssignments(ids, opts) {
   }
   try { const c = CacheService.getScriptCache(); c.removeAll(ids.map(aId => 'ASGN_ROW_v1_' + aId).filter(k => k.length <= 250)); } catch (e) {}
   return done;
+}
+
+
+/* ===================== [문제은행] 문항(열) 순서 바꾸기 =====================
+ * order: 바뀐 뒤의 열 순서. 지금 열 번호(1=B열 …)를 새 순서대로 나열한 배열 (모든 문항 열).
+ * expectIds: 화면이 알고 있는 열별 문항 ID (1행). 다르면 그 사이 시트가 바뀐 것이므로 멈춥니다.
+ * QID는 "시트!열번호"라서 열이 옮겨지면 QID가 바뀝니다. 그래서 자리가 바뀌는 문항 중
+ * 학생 과제(과제 시트)나 풀이 기록(StudentLogs, Logs_*)에 쓰인 것이 하나라도 있으면 옮기지 않습니다.
+ * 장문 연결 수식(=CR7 등)은 구글 시트가 열 이동에 맞춰 자동으로 고칩니다.
+ */
+function qbMoveColumns(name, order, expectIds) {
+  _guardDirect_();
+  const sheet = _qbSheet_(name);
+  return _withLock_(() => {
+    const n = Math.max(sheet.getLastColumn(), 1) - 1;
+    const changed = '시트가 그사이 바뀌었습니다. 시험지를 다시 불러온 뒤 옮겨 주십시오.';
+    order = (Array.isArray(order) ? order : []).map(Number);
+    if (n < 2 || order.length !== n || new Set(order).size !== n || order.some(c => !(c >= 1 && c <= n))) throw new Error(changed);
+    const ids = sheet.getRange(1, 2, 1, n).getValues()[0].map(v => String(v == null ? '' : v));
+    if (Array.isArray(expectIds) && (expectIds.length !== n || expectIds.some((v, i) => String(v == null ? '' : v) !== ids[i]))) throw new Error(changed);
+    const moved = [];
+    order.forEach((c, i) => { if (c !== i + 1) moved.push(c); });
+    if (!moved.length) return _qbReadSheet_(sheet);
+    const used = _qbUsedQids_(moved.map(c => sheet.getName() + '!' + c));
+    if (used.length) {
+      const c = Number(String(used[0]).split('!').pop());
+      throw new Error(`학생 과제·풀이 기록이 있는 문항(${ids[c - 1] || used[0]})의 자리가 함께 바뀌게 되어 순서를 바꾸지 않았습니다.<br>` +
+        '기록이 있는 문항은 자리를 옮기면 기록이 다른 문항을 가리키게 됩니다. 기록이 없는 문항끼리, 또는 기록이 있는 문항보다 뒤쪽에서만 옮길 수 있습니다.');
+    }
+    const cur = [];
+    for (let c = 1; c <= n; c++) cur.push(c);
+    for (let i = 0; i < n; i++) {
+      if (cur[i] === order[i]) continue;
+      const j = cur.indexOf(order[i]);
+      const L = _qbColLetter_(j + 2);
+      sheet.moveColumns(sheet.getRange(L + ':' + L), i + 2);
+      cur.splice(i, 0, cur.splice(j, 1)[0]);
+    }
+    SpreadsheetApp.flush();
+    try { _qbSyncIndex_(sheet); } catch (e) { console.warn('[qbMoveColumns] 인덱스 갱신 실패: ' + e); }
+    return _qbReadSheet_(sheet);
+  }, 30000);
+}
+// 이 QID들 중 과제 목록이나 풀이 기록에 쓰인 것 (찾은 것만, 빠르게 끝냄)
+function _qbUsedQids_(qids) {
+  const esc = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const chunks = [];
+  for (let i = 0; i < qids.length; i += 80) chunks.push(qids.slice(i, i + 80));
+  const found = [];
+  const places = [];
+  _logSS().getSheets().forEach(sh => {
+    const n = sh.getName();
+    if (n === QBANK_MASTER_LOG_SHEET || n.indexOf('Logs_') === 0) places.push({ sh: sh, col: 4, whole: true });
+    else if (n === '과제') places.push({ sh: sh, col: 6, whole: false });
+  });
+  for (const p of places) {
+    const last = p.sh.getLastRow();
+    if (last < 2) continue;
+    const rng = p.sh.getRange(2, p.col, last - 1, 1);
+    for (const ch of chunks) {
+      const alt = ch.map(esc).join('|');
+      const pat = p.whole ? '^\\s*(' + alt + ')\\s*$' : '"(' + alt + ')"';
+      const cell = rng.createTextFinder(pat).useRegularExpression(true).matchCase(true).findNext();
+      if (cell) {
+        const m = String(cell.getValue()).match(new RegExp(p.whole ? '(' + alt + ')' : '"(' + alt + ')"'));
+        found.push(m ? m[1] : ch[0]);
+        return found;
+      }
+    }
+  }
+  return found;
 }
