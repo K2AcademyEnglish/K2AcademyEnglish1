@@ -399,6 +399,9 @@ function loadInventoryData() {
     loadEl.classList.add('active');
   }
 
+  // 학생을 불러오면 최근 5회차 과제도 함께 엽니다. (문항 목록과 동시에 받아 기다리는 시간을 늘리지 않음)
+  toggleRecentAssignmentsPanel(true);
+
   fetchInventoryRows(val).then(data => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser || (selectEl && selectEl.value !== val)) return;
     if(loadEl) loadEl.classList.remove('active');
@@ -411,10 +414,6 @@ function loadInventoryData() {
     initInventoryFilters();
     renderMakerInsight();
     renderInventoryTable();
-    const recentPanel = document.getElementById('recentAssignmentsPanel');
-    if (recentPanel && recentPanel.style.display !== 'none') {
-        loadRecentAssignmentsForStudent(false);
-    }
       
   }, err => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser) return;
