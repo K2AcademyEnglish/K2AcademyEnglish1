@@ -251,7 +251,7 @@ function normalizeHyphens(str) {
        .replace(/&lt;\/(u|b|i|strong|em|sub|sup|center)\s*&gt;/gi, '</$1>');
 
   s = s.replace(/&lt;c&gt;/gi, '<center>').replace(/&lt;\/c&gt;/gi, '</center>');
-  s = s.replace(/&lt;(?:right|r)&gt;/gi, '<div style="text-align:right; font-size:calc(1em - 1pt);">')
+  s = s.replace(/&lt;(?:right|r)&gt;/gi, '<div style="text-align:right; font-size:calc(1em - 2pt);">')
        .replace(/&lt;\/(?:right|r)&gt;/gi, '</div>');
   s = s.replace(/&lt;box&gt;/gi, '<div class="exam-q-box">')
        .replace(/&lt;\/box&gt;/gi, '</div>');
