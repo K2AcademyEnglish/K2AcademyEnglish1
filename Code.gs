@@ -70,7 +70,7 @@ const ADMIN_API_ = new Set([
   'loadWeeklyStudentBundle', 'updateMasterIndex', 'getWeeklyReportData',
   'getQuestionMetaIndex', 'getStudentQuestionStats', 'loadWeeklyStudentStats', 'getAssignmentResult',
   'deleteWord',
-  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden', 'qbMoveColumns',
+  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden', 'qbMoveColumns', 'qbMoveQuestions',
   'deleteAssignments'
 ]);
 
@@ -1172,7 +1172,7 @@ function _updateMasterIndex_() {
   const cacheBucket = { 'm1':[], 'm2':[], 'm3':[], 'h1':[], 'h2':[], 'h3':[] };
   ss.getSheets().forEach(sh => {
     const name = sh.getName();
-    if (['양식', 'MasterIndex'].includes(name)) return;
+    if (['양식', 'MasterIndex'].includes(name) || _qbIsStaging_(name)) return;
     const data = sh.getRange(1, 1, 6, sh.getLastColumn()).getValues(); 
     
     for (let col = 1; col < data[1].length; col++) {
@@ -3829,7 +3829,7 @@ function _qbSyncIndex_(sheet) {
   const want = new Map();
   for (let c = 1; c < lastCol; c++) {
     const source = String(top[1][c] || '').trim();
-    if (!source) continue;
+    if (!source || _qbIsStaging_(name)) continue;        // 분류 시트는 출제 목록에 넣지 않습니다
     const p = parseSource_(source);
     want.set(name + '!' + c, [name + '!' + c, p.grade, p.year, p.month, String(top[2][c] || ''), String(top[4][c] || ''),
       String(top[3][c] || ''), String(top[0][c] || ''), source, name, c, p.detail]);
@@ -4250,3 +4250,101 @@ function _qbUsedQids_(qids) {
   }
   return found;
 }
+
+
+/* ===================== [문제은행] 분류 시트 → 시험 시트로 옮기기 =====================
+ * 분류 시트: 이름이 "분류_"로 시작. 출처가 섞인 문제(학교 내신 기출 등)를 먼저 모아 두는 곳으로,
+ *   출처 칸에 원래 꼬리표(예: 25년 9월 39번, 1과)를 적어 둡니다. 출제 목록(MasterIndex)에는 들어가지 않습니다.
+ * moves: [{ col, target, base, source }]
+ *   col: 분류 시트의 열 번호(1=B열), target: 옮길 시트 이름, base: 새 ID 앞부분(예: h2_25_09_39_GC),
+ *   source: 새 출처(예: 고2 2025 09월 기출)
+ *   → 새 ID = base + 세 자리 일련번호(그 시트에 이미 있는 같은 앞부분의 다음 번호)
+ * 대상 시트가 없으면 만들고(opts.create), 옮긴 열은 분류 시트에서 지웁니다.
+ * 같은 묶음(장문)의 연결 수식은 함께 옮기면 새 열을 가리키게, 아니면 값으로 바꿉니다.
+ */
+function _qbIsStaging_(name) { return /^분류_/.test(String(name || '')); }
+function qbMoveQuestions(fromName, moves, opts) {
+  _guardDirect_();
+  opts = opts || {};
+  const ss = _contentsSS();
+  const from = _qbSheet_(fromName);
+  if (!_qbIsStaging_(from.getName())) throw new Error('분류 시트("분류_"로 시작하는 시트)에서만 옮길 수 있습니다.');
+  moves = (Array.isArray(moves) ? moves : []).map(m => ({ col: Number(m.col), target: String(m.target || '').trim(), base: String(m.base || '').trim(), source: String(m.source || '').trim() }));
+  if (!moves.length) throw new Error('옮길 문항을 고르십시오.');
+  if (new Set(moves.map(m => m.col)).size !== moves.length) throw new Error('같은 문항이 두 번 들어 있습니다.');
+  moves.forEach(m => {
+    if (!/^[0-9A-Za-z가-힣_()\-]{3,60}$/.test(m.target) || _qbIsStaging_(m.target) || QB_NOT_BANK_.indexOf(m.target) !== -1) throw new Error('옮길 시트 이름을 확인하십시오: ' + m.target);
+    if (!m.base || !m.source) throw new Error('새 ID 앞부분과 출처를 모두 적어 주십시오. (' + m.target + ')');
+  });
+  // 없는 시트는 먼저 만듭니다. (잠금 밖에서: qbCreateSheet가 자체 잠금을 씁니다)
+  const missing = [...new Set(moves.map(m => m.target))].filter(n => !ss.getSheetByName(n));
+  if (missing.length && !opts.create) throw new Error('없는 시트가 있습니다: ' + missing.join(', '));
+  missing.forEach(n => qbCreateSheet(n, {}));
+  return _withLock_(() => {
+    const lastFrom = from.getLastColumn();
+    moves.forEach(m => { if (!Number.isSafeInteger(m.col) || m.col < 1 || m.col >= lastFrom) throw new Error('분류 시트가 그사이 바뀌었습니다. 다시 불러온 뒤 옮겨 주십시오.'); });
+    const rng = from.getRange(1, 1, QB_ROWS, lastFrom);
+    const vals = rng.getValues(), forms = rng.getFormulas();
+    // 분류 시트 열 → (대상 시트, 새 열) : 같은 번에 옮기는 장문 연결을 고치기 위해 먼저 자리를 정합니다.
+    const placed = {};
+    const byTarget = {};
+    moves.forEach(m => { (byTarget[m.target] = byTarget[m.target] || []).push(m); });
+    const result = [];
+    Object.keys(byTarget).forEach(tName => {
+      const sh = ss.getSheetByName(tName);
+      const last = Math.max(sh.getLastColumn(), 1);
+      const ids = last > 1 ? sh.getRange(1, 2, 1, last - 1).getValues()[0].map(String) : [];
+      const nextSeq = {};
+      byTarget[tName].forEach((m, i) => {
+        if (nextSeq[m.base] == null) {
+          const re = new RegExp('^' + m.base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\d+)$');
+          nextSeq[m.base] = ids.reduce((mx, id) => { const x = String(id).match(re); return x ? Math.max(mx, Number(x[1])) : mx; }, 0) + 1;
+        }
+        m.newId = m.base + String(nextSeq[m.base]++).padStart(3, '0');
+        m.newCol = last + i;          // 0=A열 기준 열 번호 (1=B열)
+        placed[m.col] = { target: tName, col: m.newCol };
+      });
+    });
+    Object.keys(byTarget).forEach(tName => {
+      const sh = ss.getSheetByName(tName);
+      const list = byTarget[tName];
+      const need = list[list.length - 1].newCol + 1;
+      if (sh.getMaxColumns() < need) sh.insertColumnsAfter(sh.getMaxColumns(), need - sh.getMaxColumns());
+      list.forEach(m => {
+        const c = m.col;
+        const cells = [];
+        for (let r = 0; r < QB_ROWS; r++) {
+          let f = forms[r][c] || '', v = vals[r][c];
+          if (r === 0) { cells.push(["'" + m.newId]); continue; }
+          if (r === 1) { cells.push([m.source]); continue; }
+          if (f) {
+            const ref = f.match(/^=\s*\$?([A-Z]{1,3})\$?(\d+)$/);
+            const src = ref ? _qbColNum_(ref[1]) - 1 : -1;      // 0=A열 기준
+            if (ref && placed[src] && placed[src].target === tName) f = '=' + _qbColLetter_(placed[src].col + 1) + ref[2];
+            else f = '';
+          }
+          cells.push([f ? f : v]);
+        }
+        sh.getRange(1, m.newCol + 1, QB_ROWS, 1).setValues(cells);
+        result.push({ from: c, target: tName, id: m.newId, col: m.newCol });
+      });
+      SpreadsheetApp.flush();
+      try { _qbSyncIndex_(sh); } catch (e) { console.warn('[qbMoveQuestions] 인덱스 갱신 실패: ' + e); }
+    });
+    // 분류 시트에 남는 문항이 옮겨 간 열을 가리키면(=C7 등) 지운 뒤 #REF!가 되므로 값으로 바꿔 둡니다.
+    const gone = new Set(moves.map(m => m.col));
+    for (let c = 1; c < lastFrom; c++) {
+      if (gone.has(c)) continue;
+      for (let r = 0; r < QB_ROWS; r++) {
+        const ref = String(forms[r][c] || '').match(/^=\s*\$?([A-Z]{1,3})\$?(\d+)$/);
+        if (ref && gone.has(_qbColNum_(ref[1]) - 1)) from.getRange(r + 1, c + 1).setValue(vals[r][c]);
+      }
+    }
+    // 분류 시트에서 옮긴 열을 지웁니다 (오른쪽부터). 모든 열을 지울 수는 없으므로 빈 열을 하나 남깁니다.
+    if (from.getMaxColumns() - gone.size < 2) from.insertColumnsAfter(from.getMaxColumns(), 1);
+    [...gone].sort((a, b) => b - a).forEach(c => from.deleteColumn(c + 1));
+    SpreadsheetApp.flush();
+    return { moved: result, created: missing, sheet: _qbReadSheet_(from) };
+  }, 60000);
+}
+function _qbColNum_(L) { return String(L).split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0); }
