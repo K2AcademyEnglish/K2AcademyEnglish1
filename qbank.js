@@ -1270,9 +1270,27 @@ function qbIsSchoolExam(text) {
 function qbPrepSchoolExam(text) {
   const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
   const strip = x => String(x || '').replace(/<\/?[a-z]+>/g, '');
-  const out = [], tags = {};
+  const out = [], tags = {}, notes = {};
+  let qStart = -1, qInsert = false, qNum = 0, qSummary = false;
+  // "① (A) ② (B) ③ (C) ④ (D) ⑤ (E)" / "① ⓐ ② ⓑ …" 처럼 선택지가 지문 속 표시를 가리키는 줄
+  const LBL = '(ⓐ|ⓑ|ⓒ|ⓓ|ⓔ|\\([A-Ea-e]\\))';
+  const mapRe = new RegExp('^\\s*①\\s*' + LBL + '\\s*②\\s*' + LBL + '\\s*③\\s*' + LBL + '\\s*④\\s*' + LBL + '\\s*⑤\\s*' + LBL + '\\s*$');
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
+    const mm = qStart >= 0 && strip(line).match(mapRe);
+    if (mm) {
+      // 지문 속 표시를 문제은행 양식(①~⑤, 삽입은 ( ① ))으로 바꾸고 이 줄은 버립니다.
+      const nums = ['①', '②', '③', '④', '⑤'];
+      for (let k = qStart + 1; k < out.length; k++) {
+        let t = out[k];
+        for (let q = 0; q < 5; q++) {
+          const lb = mm[q + 1].replace(/[()]/g, '\\$&');
+          t = t.replace(new RegExp(lb, 'g'), qInsert ? '( ' + nums[q] + ' )' : nums[q]);
+        }
+        out[k] = t;
+      }
+      continue;
+    }
     const m0 = strip(line).match(/^(\d{1,2})\.\s*\S/);
     if (m0 && /[가-힣]/.test(line)) {
       const n = Number(m0[1]);
@@ -1294,16 +1312,27 @@ function qbPrepSchoolExam(text) {
           if (tm) { tag = tm[1].replace(/\s+/g, ' ').replace(/(\d)\s+(?=[년월번과])/g, '$1').trim(); rest = tm[2].trim(); }
         }
         tags[n] = tag;
+        qStart = out.length; qInsert = /주어진\s*문장이\s*들어가기/.test(stem); qNum = n; qSummary = /요약/.test(stem);
         out.push(n + '. ' + stem);
         if (rest) out.push(rest);
         i = j;
         continue;
       }
     }
-    if (/^\s*(<c>)?\s*[↓⇩⬇▼]\s*(<\/c>)?\s*$/.test(line)) line = '↓';     // 요약문 화살표
+    if (/^\s*(<c>)?\s*[↓⇩⬇▼]\s*(<\/c>)?\s*$/.test(line)) {
+      if (qSummary || qStart < 0) line = '↓';     // 요약문 화살표
+      else {
+        // 요약 문제가 아닌데 나온 글꼴 기호(위첨자 90²⁰ 등)는 읽을 수 없어 빼고, 확인하라고 알립니다.
+        (notes[qNum] = notes[qNum] || []).push('PDF 글꼴 기호(위첨자 등)를 읽지 못해 뺀 곳이 있습니다. 원본과 비교해 주세요.');
+        if (out.length && i + 1 < lines.length && /[A-Za-z,]$/.test(out[out.length - 1]) && /^[A-Za-z0-9]/.test(strip(lines[i + 1]).trim())) { out[out.length - 1] += ' ' + lines[++i].trim(); }
+        continue;
+      }
+    }
+    // 줄 머리의 대시(– as many models assume –)는 앞 문장에 이어 붙입니다.
+    if (qStart >= 0 && out.length > qStart + 1 && /^\s*[–—]\s/.test(line) && /[A-Za-z,]$/.test(out[out.length - 1])) { out[out.length - 1] += ' ' + line.trim(); continue; }
     out.push(line);
   }
-  return { text: out.join('\n'), tags: tags };
+  return { text: out.join('\n'), tags: tags, notes: notes };
 }
 
 // 꼬리표 → 옮길 시트·새 ID 앞부분·출처
@@ -2543,7 +2572,7 @@ function qbPasteParse() {
     // 학교 시험지(문항마다 [25년 9월 39번]·[1과] 같은 출처 꼬리표 + 끝에 정답표)
     const prep = qbPrepSchoolExam(text);
     QB_PASTE_RESULT = qbParsePaste(prep.text, '', { noAnswers: false, joinPdf: false, minNum: 0 });
-    QB_PASTE_RESULT.forEach(r => { r.tag = prep.tags[r.num] || ''; });
+    QB_PASTE_RESULT.forEach(r => { r.tag = prep.tags[r.num] || ''; (prep.notes[r.num] || []).forEach(w => r.warnings.push(w)); });
   } else
   QB_PASTE_RESULT = qbParsePaste(text, '', { noAnswers: true, joinPdf: document.getElementById('qbPasteJoin').checked, minNum: document.getElementById('qbPasteSkipListen').checked ? 18 : 0 });
   const btn = document.querySelector('#qbModal [data-qb="paste-import"]');
