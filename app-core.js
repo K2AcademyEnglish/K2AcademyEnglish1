@@ -492,6 +492,16 @@ function initUI(){
   on('btnHeaderLogin', 'click', startQuizEntry);
   bindEnterLogin('headerUsername');
   on('btnGoStart', 'click', () => { swrClearAll(); goStart(); });
+  // 좌상단 「케이투학원」: 어느 계정이든 로그인하는 첫 화면으로 (로그아웃과 같음)
+  const goHome = () => {
+    const leave = () => { swrClearAll(); goStart(); };
+    const dirty = typeof qbDirtyKeys === 'function' ? qbDirtyKeys().length : 0;
+    if (CURRENT_USER && dirty && typeof showCustomConfirm === 'function') {
+      showCustomConfirm(`문제은행에 저장하지 않은 변경이 ${dirty}문항 있습니다.<br>처음 화면으로 가면 <b>변경이 사라집니다.</b> 계속할까요?`, leave);
+    } else leave();
+  };
+  on('brandHome', 'click', goHome);
+  on('brandHome', 'keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } });
 
   // 2. 상단 탭 연결
   on('topTabQuiz',  'click', ()=>routeTo('quiz'));
