@@ -2040,17 +2040,27 @@ function qbResolveLinks(keys) {
     d.link.rows.forEach(r => { if (!String(w.v[r] || '').trim() && !(slot && slot.f[r])) { w.f[r] = '=' + letter + (r === 3 ? 1 : r + 1); } });
   });
 }
-function qbSave(keys) {
-  if (!QB.sheet || QB.busy) return;
+// 서버는 한 번에 200문항까지 받으므로, 많으면 50문항씩 나눠 차례로 저장합니다.
+const QB_SAVE_CHUNK = 50;
+function qbSave(keys, opt) {
+  opt = opt || {};
+  if (!QB.sheet || QB.busy) return Promise.resolve(false);
   keys = keys.filter(k => qbIsDirty(k));
-  if (!keys.length) return;
-  qbResolveLinks(keys);
+  if (!keys.length) return Promise.resolve(true);
+  if (!opt.part && keys.length > QB_SAVE_CHUNK) {
+    qbResolveLinks(keys);           // 장문 연결은 전체 순서로 한 번에 계산 (나눠 저장해도 열 순서는 같음)
+    const chunks = [];
+    for (let i = 0; i < keys.length; i += QB_SAVE_CHUNK) chunks.push(keys.slice(i, i + QB_SAVE_CHUNK));
+    return chunks.reduce((p, ch, i) => p.then(ok => ok === false ? false : qbSave(ch, { part: (i + 1) + '/' + chunks.length })), Promise.resolve(true))
+      .then(ok => { if (ok !== false) showToast(`${keys.length}문항을 모두 저장했습니다. 과제출제 목록에도 바로 반영됩니다.`, 'info'); return ok; });
+  }
+  if (!opt.part) qbResolveLinks(keys);
   const items = keys.map(qbBuildItem).filter(it => it.col == null || Object.keys(it.cells).length);
-  if (!items.length) { keys.forEach(k => { if (qbIsDraft(k)) qbDropDraft(k, true); }); qbRenderList(); qbRenderForm(); return; }
+  if (!items.length) { keys.forEach(k => { if (qbIsDraft(k)) qbDropDraft(k, true); }); qbRenderList(); qbRenderForm(); return Promise.resolve(true); }
   const name = QB.sheet.name;
   const selWasDraft = qbIsDraft(QB.sel) ? QB.sel : null;
-  qbBusy(true, `${items.length}문항 저장 중...`);
-  qbCall('qbWriteQuestions', [name, items]).then(res => {
+  qbBusy(true, `${items.length}문항 저장 중...` + (opt.part ? ` (${opt.part})` : ''));
+  return qbCall('qbWriteQuestions', [name, items]).then(res => {
     if (!res || res.ok === false) {
       const c = (res && res.conflicts) || [];
       if (res && res.sheet) QB.sheet = res.sheet;
@@ -2058,7 +2068,7 @@ function qbSave(keys) {
         c.slice(0, 5).map(x => `• ${qbColLetter(x.col + 1)}열 ${QB_FIELDS[x.row].label}`).join('<br>') +
         '<br><br>지금 화면의 내 변경은 그대로 남아 있습니다. 시트를 다시 열어 비교한 뒤 저장해 주세요.');
       qbRenderList(); qbRenderForm();
-      return;
+      return false;
     }
     QB.sheet = res.sheet;
     const savedDrafts = {};
@@ -2074,9 +2084,10 @@ function qbSave(keys) {
     if (sh) sh.count = res.sheet.cols.filter(c => c.v[1]).length;
     qbRenderSheetSelect(name);
     qbRenderList(); qbRenderForm();
-    showToast(`${items.length}문항을 저장했습니다. 과제출제 목록에도 바로 반영됩니다.`, 'info');
+    if (!opt.part) showToast(`${items.length}문항을 저장했습니다. 과제출제 목록에도 바로 반영됩니다.`, 'info');
     qbAfterBankChange();
-  }).catch(err => showCustomAlert('저장 실패: ' + qbEsc(err.message || err) + '<br>화면의 변경은 그대로 남아 있습니다.'))
+    return true;
+  }).catch(err => { showCustomAlert('저장 실패: ' + qbEsc(err.message || err) + '<br>화면의 변경은 그대로 남아 있습니다.' + (opt.part ? '<br>(' + opt.part + ' 묶음에서 멈춤 — 앞 묶음은 저장되었습니다. [모두 저장]을 다시 누르면 나머지를 저장합니다.)' : '')); return false; })
     .finally(() => { qbBusy(false); qbUpdateDirty(); const b = document.querySelector('#qbMain [data-qb="save-one"]'); if (b) b.disabled = !(QB.sel != null && qbIsDirty(QB.sel)); });
 }
 function qbDropDraft(key, silent) {
