@@ -484,42 +484,56 @@ const DIFFICULTY_GUIDE_ROWS = [
   ['고3 상', 9, 'GYYYppP'],
   ['고3 최상', 10, 'GYYYpP']
 ];
-const DIFFICULTY_GUIDE_COLORS = { G: '#e2efdb', Y: '#fff2cd', p: '#fce5d7', P: '#f8cbac' };
+// 칸 색 [배경, 글자]  — 사이트 색감(회청색 테두리·둥근 모서리)에 맞춘 연한 4단계
+const DIFFICULTY_GUIDE_COLORS = {
+  G: ['#dcfce7', '#166534'],   // 연두
+  Y: ['#fef9c3', '#854d0e'],   // 노랑
+  p: ['#ffedd5', '#9a3412'],   // 연분홍(살구)
+  P: ['#fed7aa', '#9a3412']    // 주황
+};
 
 function difficultyGuideHTML() {
   const rows = DIFFICULTY_GUIDE_ROWS, n = rows.length;
   const parts = [];
+  // 위쪽 단계 눈금 1~15
+  for (let k = 1; k <= 15; k++) parts.push(`<div class="dg-axis" style="grid-row:1;grid-column:${k + 1};">${k}</div>`);
   // 3단계마다 세로 점선 (3|4, 6|7, 9|10, 12|13)
-  [4, 7, 10, 13].forEach(k => parts.push(`<div class="dg-vline" style="grid-column:${k + 1};grid-row:1 / ${n + 1};"></div>`));
+  [4, 7, 10, 13].forEach(k => parts.push(`<div class="dg-vline" style="grid-column:${k + 1};grid-row:2 / ${n + 2};"></div>`));
   rows.forEach(([label, start, colors], i) => {
-    const r = i + 1, end = start + colors.length - 1;
+    const r = i + 2, end = start + colors.length - 1;
     parts.push(`<div class="dg-label" style="grid-row:${r};grid-column:${Math.max(1, start - 1)} / ${start + 1};">${label}</div>`);
     for (let k = start; k <= end; k++) {
-      const last = k === end;
-      parts.push(`<div class="dg-cell${last ? ' dg-last' : ''}" style="grid-row:${r};grid-column:${k + 1};background:${DIFFICULTY_GUIDE_COLORS[colors[k - start]]};">${k}</div>`);
+      const [bg, fg] = DIFFICULTY_GUIDE_COLORS[colors[k - start]];
+      parts.push(`<div class="dg-cell${k === end ? ' dg-last' : ''}" style="grid-row:${r};grid-column:${k + 1};background:${bg};color:${fg};">${k}</div>`);
     }
   });
   return `<style>
-    .dg-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding:4px 2px 2px;}
-    .dg-grid{display:grid;grid-template-columns:66px repeat(15,46px);grid-template-rows:repeat(${n},30px);width:max-content;font-size:15px;color:#111;font-family:inherit;}
-    .dg-vline{border-left:1.5px dashed #555;z-index:0;}
-    .dg-label,.dg-cell{z-index:1;display:flex;align-items:center;box-sizing:border-box;border-top:1px solid #333;border-bottom:1px solid #333;margin-top:-1px;}
-    .dg-label{justify-content:flex-end;padding-right:10px;background:#fff;border-left:1px solid #333;white-space:nowrap;}
-    .dg-cell{justify-content:center;font-variant-numeric:tabular-nums;}
-    .dg-last{border-right:1px solid #333;}
-  </style><div class="dg-wrap"><div class="dg-grid">${parts.join('')}</div></div>`;
+    .dg-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;padding:2px;}
+    .dg-grid{display:grid;grid-template-columns:72px repeat(15,42px);grid-template-rows:20px repeat(${n},26px);row-gap:5px;width:max-content;font-size:13px;font-family:inherit;}
+    .dg-axis{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#94a3b8;}
+    .dg-vline{border-left:1px dashed #cbd5e1;margin-top:-4px;margin-bottom:-4px;z-index:0;}
+    .dg-label,.dg-cell{z-index:1;display:flex;align-items:center;box-sizing:border-box;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;}
+    .dg-label{justify-content:flex-end;padding-right:10px;background:#fff;border-left:1px solid #e2e8f0;border-radius:8px 0 0 8px;white-space:nowrap;font-weight:700;color:#1e3a5f;}
+    .dg-cell{justify-content:center;font-weight:700;font-variant-numeric:tabular-nums;}
+    .dg-last{border-right:1px solid #e2e8f0;border-radius:0 8px 8px 0;}
+    .dg-legend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin-top:12px;font-size:12px;color:#64748b;}
+    .dg-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:4px;vertical-align:-1px;border:1px solid rgba(0,0,0,.06);}
+  </style><div class="dg-wrap"><div class="dg-grid">${parts.join('')}</div></div>
+  <div class="dg-legend"><span>쉬움</span>${['G', 'Y', 'p', 'P'].map(c => `<i style="background:${DIFFICULTY_GUIDE_COLORS[c][0]}"></i>`).join('')}<span>어려움</span>
+    <span style="margin-left:auto;">점선: 3단계 구간</span></div>`;
 }
 
 function showDifficultyGuide() {
     const overlay = document.createElement('div');
     overlay.className = 'popup-overlay';
     overlay.style.cssText = 'position:fixed;inset:0;z-index:13000;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:12px;';
-    overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-label="난이도 참고표" style="background:#fff;border-radius:12px;max-width:100%;max-height:92vh;overflow:auto;box-shadow:0 20px 40px rgba(0,0,0,.25);">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid #e5e7eb;background:#f9fafb;">
-          <b style="font-size:16px;">📊 난이도 참고표 <span style="font-weight:400;font-size:13px;color:#6b7280;">학생 수준별 알맞은 난이도 단계</span></b>
-          <button type="button" class="dg-close" aria-label="닫기" style="width:auto;margin:0;padding:0 4px;border:0;background:none;font-size:24px;line-height:1;color:#6b7280;cursor:pointer;box-shadow:none;">×</button>
+    overlay.innerHTML = `<div role="dialog" aria-modal="true" aria-label="난이도 참고표" style="background:#fff;border-radius:14px;max-width:100%;max-height:92vh;overflow:auto;box-shadow:0 10px 30px rgba(15,23,42,.18);border:1px solid #e2e8f0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #e2e8f0;background:#f8fafc;">
+          <div><b style="font-size:16px;color:#1e3a5f;">난이도 참고표</b>
+            <div style="font-size:12px;color:#64748b;margin-top:2px;">학생 수준별로 알맞은 난이도 단계 (1~15)</div></div>
+          <button type="button" class="dg-close" aria-label="닫기" style="width:32px;height:32px;margin:0;padding:0;border:1px solid #e2e8f0;border-radius:8px;background:#fff;font-size:18px;line-height:1;color:#64748b;cursor:pointer;box-shadow:none;">×</button>
         </div>
-        <div style="padding:14px 16px 16px;">${difficultyGuideHTML()}</div>
+        <div style="padding:16px 18px 18px;">${difficultyGuideHTML()}</div>
       </div>`;
     const close = () => { if (overlay.parentNode) overlay.parentNode.removeChild(overlay); document.removeEventListener('keydown', onKey); };
     const onKey = e => { if (e.key === 'Escape') close(); };
