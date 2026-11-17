@@ -376,6 +376,9 @@ function qbParseEbs(text, opts) {
   const ks = qbEbsKeyStart(lines);
   const keyLines = ks >= 0 ? lines.slice(Math.max(0, ks - 2)) : [];
   if (ks >= 0) lines = lines.slice(0, Math.max(0, ks - 2));
+  // 책 끝 「빠른 정답」 표(<b>17</b> ⑤②③… / G 01 02 …)와 깨진 머리글(%68w…)에서도 멈춥니다.
+  const isAnsTable = t => /^%68w/.test(t) || /^(<[a-z]>)*<b>G(\s+\d{2})+<\/b>/.test(t) ||
+    /^(<b>[\d\s]+<\/b>\s*)?[①②③④⑤](\s*[①②③④⑤]){2,}/.test(t) || /^<b>\d{2}<\/b>\s*[①②③④⑤]\s*$/.test(t);
   const STOP = /^(Words\s*&\s*Phrases in Use|Solving Strategies|STEP\b|STEP <b>|Academic Vocabulary|□\s|정답과 해설\s*\d+쪽|<b>Part<\/b>|<b>I{1,3}<\/b>$|테스트편$|Exercises$|Gateway$)/;
   const isG = l => /^<b>G<\/b>\s*ateway|^G\s*ateway\b/.test(l);
   const isE = l => /^<b>E<\/b>\s*xercises|^E\s*xercises\s*$/.test(l);
@@ -425,7 +428,7 @@ function qbParseEbs(text, opts) {
       pendG = pendE = false;
       return;
     }
-    if (STOP.test(t)) { if (cur) { (cur.kind === 'group' && cur.open ? cur.open : cur).stopped = true; } return; }
+    if (STOP.test(t) || isAnsTable(t)) { if (cur) { (cur.kind === 'group' && cur.open ? cur.open : cur).stopped = true; } return; }
     const target = cur && cur.kind === 'group' ? (cur.open || cur) : cur;
     if (target && !target.stopped) target.body.push(t);
   });
@@ -454,6 +457,19 @@ function qbParseEbs(text, opts) {
       let e = k + 1; while (e < body.length && /^<r>/.test(body[e])) e++;
       return body.slice(0, e);
     };
+    // 도표 문항: 그림 속 글자(제목·축 이름·숫자·Note)는 빼고 "The graph/charts above …"부터가 지문입니다. (그림은 직접 넣기)
+    const CHART_START = /\b(The|This|These) (\w+ ){0,2}(graphs?|charts?|tables?|figures?) (above|below)|\b(The|This) (above|below) (graphs?|charts?|tables?)/i;
+    const stripChart = body => {
+      for (let i = 0; i < body.length; i++) {
+        const m = body[i].replace(/<[^>]+>/g, '').match(CHART_START);
+        if (!m) continue;
+        const plainAt = body[i].replace(/<[^>]+>/g, '').indexOf(m[0]);
+        let line = body[i];
+        if (plainAt > 0) { const at = line.indexOf(m[0]); line = at >= 0 ? line.slice(at) : line.replace(/<[^>]+>/g, '').slice(plainAt); }
+        return [line].concat(body.slice(i + 1));
+      }
+      return body;
+    };
     let src, nums;
     if (b.kind === 'group') {
       const size = b.to - b.from + 1, base = size >= 3 ? 43 : 41;
@@ -464,7 +480,8 @@ function qbParseEbs(text, opts) {
       const q = qs[0];
       const n = mode === 'T' ? q.n + 17 : (QB_EBS_UNIT_NUM[unit] || 1);
       nums = [n];
-      src = `${n}. ${q.stem}\n` + cut(q.body).join('\n');
+      const isChart = /도표/.test(q.stem) || (mode !== 'T' && unit === 8) || (mode === 'T' && q.n === 8);
+      src = `${n}. ${q.stem}\n` + cut(isChart ? stripChart(q.body) : q.body).join('\n');
     }
     const parsed = qbParsePaste(src, '', { noAnswers: true, joinPdf: false });
     const headSeq = seq + 1;
@@ -941,7 +958,7 @@ async function qbPdfToText(pdfjs, data, opts) {
 
   // 줄 → 문단: 들여쓴 줄·문항 시작 줄에서 새 문단, 단 오른쪽 끝까지 차지 않은 줄 뒤에서 끊기, 나머지는 이어 붙입니다.
   const out = [], outTrail = [];
-  let cur = '', curLeft = null, curTrail = false, contPrev = false;
+  let cur = '', curLeft = null, curTrail = false, contPrev = false, curCirc = 0;
   const flush = () => { if (cur.trim()) { out.push(cur.trim()); outTrail.push(curTrail); } cur = ''; curLeft = null; };
   allLines.forEach((l, idx) => {
     let html = l.html.trim();
@@ -949,7 +966,15 @@ async function qbPdfToText(pdfjs, data, opts) {
     html = html.replace(/^<b>(\d{1,2}\s*[.．])<\/b>\s*/, '$1 ').replace(/^<b>(\d{1,2}\s*[.．])\s+/, '$1 <b>').replace(/^<i>(\d{1,2}\s*[.．])<\/i>\s*/, '$1 ').replace(/^<i>(\d{1,2}\s*[.．])\s+/, '$1 <i>').replace(/^(\d{1,2}[.．])\s*<i><\/i>/, '$1');
     if (/^(\[\s*\d{1,2}\s*[~∼～\-–]|\d{1,2}\s*[.．]\s*[가-힣])/.test(plain) || /^[가-힣]/.test(plain)) html = html.replace(/<\/?b>/g, '');   // 문항 머리·한글 줄의 굵게는 뺍니다
     const isFoot = /^\*/.test(plain) && l.size < bodySize * 0.95;
-    const startsBlock = /^(\d{1,2}\s*[.．]\s*\S|\[\s*\d{1,2}\s*[~∼～\-–]\s*\d{1,2}\s*\]|[①②③④⑤]|\(\s*[A-D]\s*\)|정답)/.test(plain);
+    // ①~⑤로 시작하는 줄은 선택지 줄일 때만 새 줄입니다. 지문 속 원문자(도표·어법·어휘·흐름)가 우연히 줄 맨 앞에 온 경우는 앞 줄에 이어 씁니다.
+    const circ = t => { const m = String(t || '').trim().match(/^([①②③④⑤])/); return m ? '①②③④⑤'.indexOf(m[1]) + 1 : 0; };
+    const ck = circ(plain);
+    const optionLine = ck > 0 && (() => {
+      const pk = idx > 0 ? circ(allLines[idx - 1].plain) : 0, nk = allLines[idx + 1] ? circ(allLines[idx + 1].plain) : 0;
+      if ((pk && pk < ck) || (nk && nk > ck) || (cur && curCirc && curCirc < ck)) return true;   // 위·아래 줄(또는 지금 문단 첫머리)도 순서대로 원문자 → 선택지·풀이 목록
+      return ck === 1 && (plain.match(/[①②③④⑤]/g) || []).length >= 3;          // 한 줄에 선택지 여러 개
+    })();
+    const startsBlock = /^(\d{1,2}\s*[.．]\s*\S|\[\s*\d{1,2}\s*[~∼～\-–]\s*\d{1,2}\s*\]|\(\s*[A-D]\s*\)|정답)/.test(plain) || optionLine;
     if (isFoot) { flush(); out.push('<r>' + html + '</r>'); outTrail.push(false); stats.footnote++; return; }
     const indented = curLeft != null && l.x0 > curLeft + bodySize * 0.6;
     // 안내문 같은 글: 글머리표(∙ ※)·가운데 줄·굵은 제목으로 시작하는 줄은 새 줄입니다.
@@ -959,7 +984,7 @@ async function qbPdfToText(pdfjs, data, opts) {
     const boldHead = (l.wholeBold || l.startsBold) && /[A-Za-z]/.test(plain) && !/^\d{1,2}\s*[.．]/.test(plain);
     if (centered && !startsBlock) { flush(); cur = '<c>' + html + '</c>'; curTrail = !!l.trail; flush(); return; }
     if (startsBlock || (indented && !contPrev) || bullet || boldHead || !cur) {
-      flush(); cur = html; curLeft = startsBlock && /^\d/.test(plain) ? null : l.x0;
+      flush(); cur = html; curCirc = ck; curLeft = startsBlock && /^\d/.test(plain) ? null : l.x0;
       if (/^\d{1,2}\s*[.．]/.test(plain) && /[가-힣]/.test(plain)) { flush(); }       // 문항 첫 줄(질문)은 따로 둡니다
     } else {
       if (curLeft == null || l.x0 < curLeft) curLeft = l.x0;
