@@ -169,6 +169,7 @@ html body #qbankPage button.qb-seg-btn.active { background: #1e40af !important; 
 #qbankPage .qb-modal-box { background: #fff; border-radius: 12px; width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.25); }
 #qbankPage .qb-modal-box:has(.qb-paste) { width: min(1180px, 100%); }
 #qbankPage .qb-modal-box:has(.qb-key) { width: min(860px, 100%); }
+#qbankPage .qb-modal-box:has(#qbStageOut) { width: min(1120px, 100%); }
 #qbankPage .qb-modal-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; border-bottom: 1px solid #e2e8f0; background: #f8fafc; font-size: 16px; }
 html body #qbankPage button.qb-x { width: 32px !important; height: 32px !important; margin: 0 !important; padding: 0 !important; background: none !important; border: 0 !important; font-size: 22px !important; color: #64748b !important; cursor: pointer; box-shadow: none !important; }
 #qbankPage .qb-modal-body { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
@@ -209,6 +210,22 @@ html body #qbankPage button.qb-item.drop-after { box-shadow: inset 0 -3px 0 #256
 #qbankPage .qb-multi-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 #qbankPage .qb-multi-box .qb-multi-foot:first-child { margin-top: 0; }
 #qbankPage .qb-multi-tip { font-size: 12px; color: #64748b; background: #fff; }
+
+/* 분류 시트 → 시험 시트로 옮기기 */
+#qbankPage .qb-chip-tag { background: #fef3c7; color: #92400e; }
+#qbankPage .qb-stage-opts { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 8px; }
+#qbankPage .qb-stage-opts label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; font-weight: 700; color: #475569; }
+#qbankPage .qb-stage-opts input, #qbankPage .qb-stage-opts select { margin: 0 !important; min-width: 150px; }
+#qbankPage .qb-stage-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 10px; }
+#qbankPage .qb-stage-table th { text-align: left; color: #475569; background: #f8fafc; padding: 6px; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 1; }
+#qbankPage .qb-stage-table td { padding: 5px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+#qbankPage .qb-stage-table input[type=text] { margin: 0 !important; padding: 5px 7px !important; font-size: 12px !important; min-width: 0; width: 100%; box-sizing: border-box; }
+#qbankPage .qb-stage-table input[type=checkbox] { width: auto !important; margin: 0 !important; }
+#qbankPage .qb-stage-table .qb-st-tag { width: 110px; }
+#qbankPage .qb-stage-table .qb-st-base { width: 160px; }
+#qbankPage .qb-stage-table tr.is-off td { opacity: .45; }
+#qbankPage .qb-stage-stem { max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#qbankPage .qb-stage-new { font-size: 11px; color: #b45309; margin-top: 2px; }
 
 /* 넓은 화면: 편집기를 화면 높이에 맞추고, 목록·입력칸·미리보기를 각자 스크롤 (페이지 전체는 늘어나지 않음) */
 @media screen and (min-width: 821px) {

@@ -1257,6 +1257,72 @@ function qbKeyCell(key, num, parts, isGroupHead) {
   want.forEach(([h, t]) => sec.push('<b>[' + h + ']</b> ' + t));
   return sec.join('\n');
 }
+/* ---------- 학교 시험지(출처가 섞인 내신 기출) ---------- */
+const qbIsStaging = name => /^분류_/.test(String(name || ''));
+// "1. 다음 글의 제목으로 가장 적절한 것은?1) [23년 11월 37번]"처럼 질문 끝에 미주 번호가 붙고, 끝에 "1) ③" 정답표가 있는 양식
+function qbIsSchoolExam(text) {
+  const t = String(text || '');
+  const marks = (t.match(/[?？.]\s*\d{1,2}\)\s*(\[|<b>\[|$)/gm) || []).length;
+  const keys = (t.match(/^\d{1,2}\)\s*[①②③④⑤]\s*$/gm) || []).length;
+  return marks >= 3 && keys >= 3;
+}
+// 질문 줄을 한 줄로 합치고, 미주 번호와 출처 꼬리표([…])를 떼어 냅니다. → { text, tags: {번호: '25년 9월 39번'} }
+function qbPrepSchoolExam(text) {
+  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const strip = x => String(x || '').replace(/<\/?[a-z]+>/g, '');
+  const out = [], tags = {};
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    const m0 = strip(line).match(/^(\d{1,2})\.\s*\S/);
+    if (m0 && /[가-힣]/.test(line)) {
+      const n = Number(m0[1]);
+      const markRe = new RegExp('^(.*?[?？.])\\s*' + n + '\\)\\s*(.*)$');
+      let buf = strip(line).trim(), j = i, found = buf.match(markRe);
+      while (!found && j - i < 3 && j + 1 < lines.length) {
+        j++;
+        const nx = strip(lines[j]).trim();
+        // 한글 낱말이 줄에서 끊긴 경우(의미하/는, 들어가/기에)는 붙여 씁니다.
+        buf += (/[가-힣]$/.test(buf) && /^[는은기게며를을의에도]/.test(nx) ? '' : ' ') + nx;
+        found = buf.match(markRe);
+      }
+      if (found) {
+        let stem = found[1].replace(/^\d{1,2}\.\s*/, '').trim(), rest = found[2].trim(), tag = '';
+        if (!rest && j + 1 < lines.length && /^\s*\[/.test(strip(lines[j + 1]))) { j++; rest = strip(lines[j]).trim(); }
+        if (/^\[/.test(rest)) {
+          while (rest.indexOf(']') < 0 && j + 1 < lines.length && j - i < 6) { j++; rest += ' ' + strip(lines[j]).trim(); }
+          const tm = rest.match(/^\[([^\]]*)\]\s*(.*)$/);
+          if (tm) { tag = tm[1].replace(/\s+/g, ' ').replace(/(\d)\s+(?=[년월번과])/g, '$1').trim(); rest = tm[2].trim(); }
+        }
+        tags[n] = tag;
+        out.push(n + '. ' + stem);
+        if (rest) out.push(rest);
+        i = j;
+        continue;
+      }
+    }
+    if (/^\s*(<c>)?\s*[↓⇩⬇▼]\s*(<\/c>)?\s*$/.test(line)) line = '↓';     // 요약문 화살표
+    out.push(line);
+  }
+  return { text: out.join('\n'), tags: tags };
+}
+
+// 꼬리표 → 옮길 시트·새 ID 앞부분·출처
+//   "25년 9월 39번" → h2_25_09기출 · h2_25_09_39_GC · 고2 2025 09월 기출   (학년은 위에서 고른 값)
+//   "1과"          → {교과서}_1기출 · {교과서}_1_GC · {교과서 출처} 1과 기출
+function qbStageGuess(tag, o) {
+  const t = String(tag || '').replace(/\s+/g, ' ').trim();
+  const pad = n => String(n).padStart(2, '0');
+  let m = t.match(/^(\d{2})년\s*(\d{1,2})월\s*(\d{1,2})번$/);
+  if (m && o.grade) {
+    const g = o.grade, yy = m[1], mm = pad(m[2]), num = pad(m[3]);
+    return { target: `${g}_${yy}_${mm}기출`, base: `${g}_${yy}_${mm}_${num}_GC`, source: `${g[0] === 'h' ? '고' : '중'}${g[1]} 20${yy} ${mm}월 기출` };
+  }
+  m = t.match(/^(\d{1,2})과$/) || t.match(/^Lesson\s*(\d{1,2})$/i);
+  if (m && o.tb) {
+    return { target: `${o.tb}_${Number(m[1])}기출`, base: `${o.tb}_${Number(m[1])}_GC`, source: `${o.tbLabel ? o.tbLabel + ' ' : ''}${Number(m[1])}과 기출` };
+  }
+  return { target: '', base: '', source: '' };
+}
 /* ===== QB_KEY_END ===== */
 
 /* ===================== 문제은행 편집기 화면 (관리자) =====================
@@ -1493,9 +1559,9 @@ function qbRenderSheetSelect(keep) {
   const sel = document.getElementById('qbSheetSelect');
   if (!sel) return;
   const groups = {};
-  const label = n => { const m = n.match(/^([hm])([1-3])_/); return m ? (m[1] === 'h' ? '고' : '중') + m[2] : '기타'; };
+  const label = n => { if (qbIsStaging(n)) return '📦 분류'; const m = n.match(/^([hm])([1-3])_/); return m ? (m[1] === 'h' ? '고' : '중') + m[2] : '기타'; };
   QB.sheets.forEach(s => { (groups[label(s.name)] = groups[label(s.name)] || []).push(s); });
-  const order = ['중1', '중2', '중3', '고1', '고2', '고3', '기타'];
+  const order = ['📦 분류', '중1', '중2', '중3', '고1', '고2', '고3', '기타'];
   sel.innerHTML = '<option value="">시험지(시트) 선택</option>' + order.filter(g => groups[g]).map(g =>
     `<optgroup label="${g}">` + groups[g].map(s => `<option value="${qbAttr(s.name)}">${QB.missCount[s.name] ? '🟡 ' : ''}${qbEsc(s.name)} (${s.count})</option>`).join('') + '</optgroup>'
   ).join('');
@@ -1536,8 +1602,13 @@ function qbRenderSrcBar() {
   const bar = document.getElementById('qbSrcBar');
   if (!bar) return;
   if (!QB.sheet) { bar.hidden = true; return; }
-  const src = qbDefaultSource(QB.sheet.name);
   bar.hidden = false;
+  if (qbIsStaging(QB.sheet.name)) {
+    bar.innerHTML = `<span class="qb-muted">📦 분류 시트 · 출제 목록에 나오지 않습니다</span>
+      <button type="button" class="qb-btn qb-btn-sm qb-btn-primary" data-qb="stage-move" data-qb-busy>시험 시트로 옮기기</button>`;
+    return;
+  }
+  const src = qbDefaultSource(QB.sheet.name);
   bar.innerHTML = `<span class="qb-muted">출처</span> <b title="새로 넣는 문항에 이 출처가 들어갑니다">${qbEsc(src || '(없음)')}</b>
     <button type="button" class="qb-btn qb-btn-sm" data-qb="src-edit" data-qb-busy>출처 바꾸기</button>`;
 }
@@ -2358,7 +2429,8 @@ function qbNewSheetDialog() {
   qbOpenModal(`
     <div class="qb-modal-head"><b>새 시험지(시트) 만들기</b><button type="button" class="qb-x" data-qb="close-modal" aria-label="닫기">×</button></div>
     <div class="qb-modal-body">
-      <label class="qb-label" for="qbNsName">시트 이름</label>
+      <label class="qb-check"><input type="checkbox" id="qbNsStage"> <b>📦 분류 시트</b> <span class="qb-muted">— 출처가 섞인 문제(학교 내신 기출 등)를 먼저 모아 두고, 나중에 알맞은 시험 시트로 옮깁니다. 출제 목록에는 나오지 않습니다.</span></label>
+      <label class="qb-label qb-mt" for="qbNsName">시트 이름</label>
       <input type="text" id="qbNsName" placeholder="예: h1_26_09, h1_26_09기출, h2_26_E2YBM(P)_3변형" value="">
       <div class="qb-muted">규칙: 학년(h1~h3, m1~m3)_연도2자리_월 (+기출/변형).</div>
       <label class="qb-label qb-mt" for="qbNsSrc">문제 출처 <span class="qb-muted">(시트 이름으로 자동으로 채워지며, 직접 고칠 수 있습니다)</span></label>
@@ -2380,10 +2452,17 @@ function qbNewSheetDialog() {
   nameEl.addEventListener('input', upd);
   srcEl.addEventListener('input', () => { srcEl.dataset.touched = srcEl.value.trim() ? '1' : ''; if (!srcEl.value.trim()) upd(); });
   if (base) { const m = base.match(/^([hm][1-3])_/); if (m) nameEl.value = m[1] + '_'; }
+  const stageEl = document.getElementById('qbNsStage');
+  stageEl.addEventListener('change', () => {
+    if (stageEl.checked) { nameEl.placeholder = '예: 2026고2_2학기중간 → 분류_2026고2_2학기중간'; if (/^[hm][1-3]_$/.test(nameEl.value)) nameEl.value = ''; srcEl.value = ''; srcEl.dataset.touched = '1'; }
+    else nameEl.placeholder = '예: h1_26_09, h1_26_09기출, h2_26_E2YBM(P)_3변형';
+  });
   nameEl.focus();
 }
 function qbCreateSheet() {
-  const name = document.getElementById('qbNsName').value.trim();
+  let name = document.getElementById('qbNsName').value.trim();
+  const stageBox = document.getElementById('qbNsStage');
+  if (stageBox && stageBox.checked && !qbIsStaging(name)) name = '분류_' + name.replace(/^_+/, '');
   if (!/^[0-9A-Za-z가-힣_()\-]{3,60}$/.test(name)) { showToast('시트 이름을 확인하세요 (영문·숫자·한글·_ ( ) -).', 'error'); return; }
   if (QB.sheets.some(s => s.name === name)) { showToast('같은 이름의 시트가 이미 있습니다.', 'error'); return; }
   const frame = document.getElementById('qbNsFrame').checked;
@@ -2460,6 +2539,12 @@ function qbPasteParse() {
   const out = document.getElementById('qbPasteOut');
   QB_EBS = null;
   if (qbIsEbsText(text)) { QB_EBS = qbParseEbs(text); QB_EBS.prefix = qbEbsPrefixGuess(text); qbEbsRender(); return; }
+  if (qbIsSchoolExam(text)) {
+    // 학교 시험지(문항마다 [25년 9월 39번]·[1과] 같은 출처 꼬리표 + 끝에 정답표)
+    const prep = qbPrepSchoolExam(text);
+    QB_PASTE_RESULT = qbParsePaste(prep.text, '', { noAnswers: false, joinPdf: false, minNum: 0 });
+    QB_PASTE_RESULT.forEach(r => { r.tag = prep.tags[r.num] || ''; });
+  } else
   QB_PASTE_RESULT = qbParsePaste(text, '', { noAnswers: true, joinPdf: document.getElementById('qbPasteJoin').checked, minNum: document.getElementById('qbPasteSkipListen').checked ? 18 : 0 });
   const btn = document.querySelector('#qbModal [data-qb="paste-import"]');
   if (!QB_PASTE_RESULT.length) {
@@ -2467,13 +2552,16 @@ function qbPasteParse() {
     btn.disabled = true; return;
   }
   const slots = qbSlotsByNum();
-  out.innerHTML = `<div class="qb-paste-sum">${QB_PASTE_RESULT.length}문항을 찾았습니다. 가져올 문항을 고르세요.</div>` +
+  const tagged = QB_PASTE_RESULT.some(r => r.tag);
+  const stageNote = tagged ? (qbIsStaging(QB.sheet && QB.sheet.name) ? '<div class="qb-muted">문항마다 붙은 출처 꼬리표를 출처 칸에 넣습니다. 저장한 뒤 [📦 시험 시트로 옮기기]로 나눠 옮기세요.</div>'
+    : '<div class="qb-warn">출처가 섞인 시험지입니다. [＋ 새 시험지]에서 <b>📦 분류 시트</b>를 만들어 그곳으로 가져오면, 저장 뒤 문항마다 알맞은 시험 시트로 옮길 수 있습니다.</div>') : '';
+  out.innerHTML = `<div class="qb-paste-sum">${QB_PASTE_RESULT.length}문항을 찾았습니다. 가져올 문항을 고르세요.</div>` + stageNote +
     QB_PASTE_RESULT.map((r, i) => {
       const nOpt = r.v.slice(10, 15).filter(Boolean).length;
       const nBox = r.v.slice(6, 10).filter(Boolean).length;
       const dest = slots[r.num] != null ? `${qbColLetter(slots[r.num] + 1)}열 빈 칸에 채움` : '새 열로 추가';
       return `<label class="qb-pr${r.warnings.length ? ' has-warn' : ''}"><input type="checkbox" data-pi="${i}" checked>
-        <span class="qb-pr-main"><b>${r.num}번</b> <span class="qb-item-type">${qbEsc(r.type || '유형?')}</span> <span class="qb-muted">${dest}</span><br>
+        <span class="qb-pr-main"><b>${r.num}번</b> <span class="qb-item-type">${qbEsc(r.type || '유형?')}</span>${r.tag ? ` <span class="qb-chip qb-chip-tag">${qbEsc(r.tag)}</span>` : ''}${r.v[15] ? ` <span class="qb-muted">정답 ${'①②③④⑤'[Number(r.v[15]) - 1] || qbEsc(r.v[15])}</span>` : ''} <span class="qb-muted">${dest}</span><br>
         <span class="qb-pr-stem">${qbEsc(r.v[5])}</span><br>
         <span class="qb-muted">지문 ${nBox}칸 · 선택지 ${nOpt}개${r.link ? ' · 🔗 ' + r.link.head + '번 지문 연결' : ''}</span>
         ${r.warnings.length ? '<span class="qb-pr-warn">' + r.warnings.map(qbEsc).join('<br>') + '</span>' : ''}</span></label>`;
@@ -2498,9 +2586,11 @@ function qbPasteImport() {
   if (!picks.length) { showToast('가져올 문항을 고르세요.', 'error'); return; }
   const slots = qbSlotsByNum();
   let first = null;
+  const staging = qbIsStaging(QB.sheet && QB.sheet.name);
   picks.forEach(r => {
     const target = slots[r.num] != null ? slots[r.num] : null;
     const v = r.v.slice();
+    if (staging && r.tag) v[1] = r.tag;          // 분류 시트: 출처 칸에 원래 꼬리표(예: 25년 9월 39번)
     let d;
     if (target != null) {
       const o = qbOrig(String(target));
@@ -2520,6 +2610,102 @@ function qbPasteImport() {
   qbCloseModal();
   qbSelect(first);
   showToast(`${picks.length}문항을 가져왔습니다. 하나씩 확인한 뒤 [모두 저장]을 누르세요.`, 'info');
+}
+
+/* ---------- 분류 시트 → 시험 시트로 옮기기 ---------- */
+let QB_STAGE = null;
+function qbStageMoveDialog() {
+  if (!QB.sheet || !qbIsStaging(QB.sheet.name)) return;
+  if (qbDirtyKeys().length) { showToast('저장하지 않은 변경이 있습니다. [모두 저장]을 누른 뒤 옮겨 주세요.', 'error'); return; }
+  const cols = QB.sheet.cols.filter(c => !c.empty && (c.v[0] || c.v[5]));
+  if (!cols.length) { showToast('옮길 문항이 없습니다.', 'error'); return; }
+  const picked = QB.multi.size > 1 ? new Set([...QB.multi].map(Number)) : null;
+  const gm = QB.sheet.name.match(/고\s*([1-3])|h([1-3])/);
+  const tbs = [...new Set(QB.sheets.map(s => { const x = s.name.match(/^([hm][1-3]_\d{2}_[^_]*[A-Za-z][^_]*)_\d{1,2}(기출|변형)?$/); return x ? x[1] : ''; }).filter(Boolean))];
+  QB_STAGE = {
+    grade: gm ? 'h' + (gm[1] || gm[2]) : '', tb: '', tbLabel: '',
+    rows: cols.map(c => ({ col: c.col, on: picked ? picked.has(c.col) : true, tag: String(c.v[1] || ''), id: c.v[0], type: c.v[2], stem: String(c.v[5] || '').replace(/<[^>]+>/g, '').slice(0, 50), touched: false, target: '', base: '', source: '' }))
+  };
+  qbOpenModal(`
+    <div class="qb-modal-head"><b>📦 시험 시트로 옮기기 — ${qbEsc(QB.sheet.name)}</b><button type="button" class="qb-x" data-qb="close-modal" aria-label="닫기">×</button></div>
+    <div class="qb-modal-body" id="qbStageOut">
+      <div class="qb-stage-opts">
+        <label>모의고사 학년 <select id="qbStGrade"><option value="">고르세요</option>${['h1', 'h2', 'h3'].map(g => `<option value="${g}"${QB_STAGE.grade === g ? ' selected' : ''}>고${g[1]}</option>`).join('')}</select></label>
+        <label>교과서 시트 앞부분 <input type="text" id="qbStTb" list="qbStTbList" placeholder="예: h2_26_E2YBM(P)" spellcheck="false"></label>
+        <datalist id="qbStTbList">${tbs.map(t => `<option value="${qbAttr(t)}">`).join('')}</datalist>
+        <label>교과서 출처 이름 <input type="text" id="qbStTbLabel" placeholder="예: 고2 2026 영어2YBM(박)"></label>
+      </div>
+      <div class="qb-muted">꼬리표 "25년 9월 39번" → <b>h2_25_09기출</b> 시트, ID <b>h2_25_09_39_GC001</b>, 출처 "고2 2025 09월 기출" · "1과" → <b>교과서앞부분_1기출</b> 시트. 
+        ID 끝 번호는 그 시트의 다음 번호로 자동으로 붙고, 없는 시트는 새로 만듭니다. 칸마다 직접 고칠 수 있습니다.</div>
+      <datalist id="qbStSheets">${QB.sheets.filter(s => !qbIsStaging(s.name)).map(s => `<option value="${qbAttr(s.name)}">`).join('')}</datalist>
+      <div id="qbStageRows"></div>
+    </div>
+    <div class="qb-modal-foot"><span class="qb-muted" id="qbStageSum"></span><button type="button" class="qb-btn" data-qb="close-modal">취소</button>
+      <button type="button" class="qb-btn qb-btn-primary" data-qb="stage-run" data-qb-busy>옮기기</button></div>`);
+  qbStageRender();
+}
+function qbStageFill() {
+  QB_STAGE.rows.forEach(r => { if (!r.touched) Object.assign(r, qbStageGuess(r.tag, QB_STAGE)); });
+}
+function qbStageRender() {
+  qbStageFill();
+  const exists = n => QB.sheets.some(s => s.name === n);
+  document.getElementById('qbStageRows').innerHTML = `<table class="qb-stage-table"><thead><tr><th><input type="checkbox" data-st="all"${QB_STAGE.rows.every(r => r.on) ? ' checked' : ''}></th>
+    <th>문항</th><th>꼬리표</th><th>옮길 시트</th><th>새 ID</th><th>새 출처</th></tr></thead><tbody>` +
+    QB_STAGE.rows.map((r, i) => `<tr class="${r.on ? '' : 'is-off'}">
+      <td><input type="checkbox" data-st="on" data-i="${i}"${r.on ? ' checked' : ''}></td>
+      <td><b>${qbEsc(qbShortId(r.id) || qbColLetter(r.col + 1) + '열')}</b> <span class="qb-item-type">${qbEsc(r.type || '')}</span><div class="qb-muted qb-stage-stem">${qbEsc(r.stem)}</div></td>
+      <td><input type="text" data-st="tag" data-i="${i}" value="${qbAttr(r.tag)}" class="qb-st-tag"></td>
+      <td><input type="text" data-st="target" data-i="${i}" value="${qbAttr(r.target)}" list="qbStSheets" spellcheck="false">${r.target && !exists(r.target) ? '<div class="qb-stage-new">새 시트로 만듦</div>' : ''}</td>
+      <td><input type="text" data-st="base" data-i="${i}" value="${qbAttr(r.base)}" spellcheck="false" class="qb-st-base"><span class="qb-muted">001…</span></td>
+      <td><input type="text" data-st="source" data-i="${i}" value="${qbAttr(r.source)}"></td></tr>`).join('') + '</tbody></table>';
+  qbStageSum();
+}
+function qbStageSum() {
+  const on = QB_STAGE.rows.filter(r => r.on);
+  const bad = on.filter(r => !r.target || !r.base || !r.source).length;
+  const sheets = new Set(on.filter(r => r.target).map(r => r.target));
+  document.getElementById('qbStageSum').textContent = `${on.length}문항 → ${sheets.size}개 시트` + (bad ? ` · 칸이 빈 문항 ${bad}개` : '');
+  const b = document.querySelector('#qbModal [data-qb="stage-run"]');
+  if (b) b.disabled = !on.length || bad > 0;
+}
+function qbStageOnInput(el) {
+  if (!QB_STAGE) return;
+  if (el.id === 'qbStGrade' || el.id === 'qbStTb' || el.id === 'qbStTbLabel') {
+    QB_STAGE.grade = document.getElementById('qbStGrade').value;
+    QB_STAGE.tb = document.getElementById('qbStTb').value.trim();
+    QB_STAGE.tbLabel = document.getElementById('qbStTbLabel').value.trim();
+    qbStageRender(); return;
+  }
+  const st = el.dataset && el.dataset.st, i = Number(el.dataset && el.dataset.i);
+  if (st === 'all') { QB_STAGE.rows.forEach(r => { r.on = el.checked; }); qbStageRender(); return; }
+  const r = QB_STAGE.rows[i];
+  if (!r) return;
+  if (st === 'on') { r.on = el.checked; el.closest('tr').classList.toggle('is-off', !r.on); qbStageSum(); return; }
+  if (st === 'tag') { r.tag = el.value; r.touched = false; Object.assign(r, qbStageGuess(r.tag, QB_STAGE));
+    const tr = el.closest('tr'); ['target', 'base', 'source'].forEach(k => { tr.querySelector(`[data-st="${k}"]`).value = r[k]; }); qbStageSum(); return; }
+  if (st === 'target' || st === 'base' || st === 'source') { r[st] = el.value.trim(); r.touched = true; qbStageSum(); }
+}
+function qbStageMoveRun() {
+  const on = QB_STAGE.rows.filter(r => r.on);
+  if (!on.length || on.some(r => !r.target || !r.base || !r.source)) return;
+  const name = QB.sheet.name;
+  const fresh = [...new Set(on.map(r => r.target))].filter(n => !QB.sheets.some(s => s.name === n));
+  const go = () => {
+    qbBusy(true, `${on.length}문항을 옮기는 중...`);
+    qbCall('qbMoveQuestions', [name, on.map(r => ({ col: r.col, target: r.target, base: r.base, source: r.source })), { create: true }]).then(res => {
+      qbBusy(false);
+      qbCloseModal();
+      QB.sheet = res.sheet; QB.work = {}; QB.drafts = []; QB.sel = null; QB.multi = new Set();
+      qbRenderList(); qbRenderForm();
+      qbAfterBankChange();
+      qbLoadSheets(name);
+      const by = {};
+      res.moved.forEach(m => { by[m.target] = (by[m.target] || 0) + 1; });
+      showCustomAlert(`<b>${res.moved.length}문항을 옮겼습니다.</b><br>` + Object.keys(by).map(t => `· ${qbEsc(t)} ${by[t]}문항${(res.created || []).indexOf(t) !== -1 ? ' (새 시트)' : ''}`).join('<br>'));
+    }).catch(err => { qbBusy(false); showCustomAlert('옮기지 못했습니다.<br>' + qbEsc(err && err.message || err)); });
+  };
+  if (fresh.length) showCustomConfirm(`없는 시트 ${fresh.length}개를 새로 만들어 옮깁니다.<br><span style="font-size:13px;color:#64748b;">${fresh.map(qbEsc).join(', ')}</span>`, go); else go();
 }
 
 /* ---------- EBS 교재 PDF (수능특강 등) ---------- */
@@ -2927,6 +3113,7 @@ function qbBind() {
   });
   page.addEventListener('input', e => {
     if (e.target.id === 'qbFilter') { qbRenderList(); return; }
+    if (e.target.closest && e.target.closest('#qbStageOut')) { qbStageOnInput(e.target); return; }
     const bk = e.target.closest && e.target.closest('[data-bulk]');
     if (bk && e.target.dataset.b === 'text') { qbBulkRender(Number(bk.dataset.bulk)); return; }
     if (e.target.closest('#qbMain') && e.target.dataset && e.target.dataset.row != null) qbOnInput(e.target);
@@ -2993,6 +3180,8 @@ function qbBind() {
     else if (act === 'save-one' && key != null) qbSave([key]);
     else if (act === 'revert' && key != null) { delete QB.work[key]; qbRenderList(); qbRenderForm(); }
     else if (act === 'drop-draft' && key != null) showCustomConfirm('이 새 문항을 버릴까요? (시트에는 아직 저장되지 않았습니다)', () => qbDropDraft(key));
+    else if (act === 'stage-move') qbStageMoveDialog();
+    else if (act === 'stage-run') qbStageMoveRun();
     else if (act === 'multi-clear') qbSelect(QB.sel);
     else if (act === 'multi-apply') qbMultiApply();
     else if (act === 'multi-hide') qbMultiHidden(true);
