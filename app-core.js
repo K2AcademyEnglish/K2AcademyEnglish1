@@ -492,16 +492,29 @@ function initUI(){
   on('btnHeaderLogin', 'click', startQuizEntry);
   bindEnterLogin('headerUsername');
   on('btnGoStart', 'click', () => { swrClearAll(); goStart(); });
-  // 좌상단 「케이투학원」: 어느 계정이든 로그인하는 첫 화면으로 (로그아웃과 같음)
+  // 좌상단 「케이투학원」: 로그인한 채로, 로그인 직후 처음 보는 화면으로 돌아갑니다.
+  //  - 관리자: 과제출제 / 학생: 학생 메인 화면 / 로그인 전: 로그인 화면 그대로
   const goHome = () => {
-    const leave = () => { swrClearAll(); goStart(); };
-    const dirty = typeof qbDirtyKeys === 'function' ? qbDirtyKeys().length : 0;
-    if (CURRENT_USER && dirty && typeof showCustomConfirm === 'function') {
-      showCustomConfirm(`문제은행에 저장하지 않은 변경이 ${dirty}문항 있습니다.<br>처음 화면으로 가면 <b>변경이 사라집니다.</b> 계속할까요?`, leave);
-    } else leave();
+    if (typeof closeNavDrawer === 'function') closeNavDrawer();
+    if (!CURRENT_USER) { showPanel('startPage'); return; }
+    if (CURRENT_USER.role === 'manager') { routeTo('admin-create'); return; }
+    if (window.history && window.history.pushState) window.history.pushState({ page: 'main' }, '', window.location.pathname + window.location.search);
+    showPanel('studentMainPage');
+    document.querySelectorAll('.top-tab').forEach(t => t.classList.remove('active'));
+    hideFooter();
+    window.scrollTo(0, 0);
   };
-  on('brandHome', 'click', goHome);
-  on('brandHome', 'keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } });
+  // index.html에 id가 없어도 동작하도록 클래스로 찾습니다.
+  document.querySelectorAll('#brandHome, .brand').forEach(brand => {
+    if (brand.dataset.homeBound) return;
+    brand.dataset.homeBound = '1';
+    brand.style.cursor = 'pointer';
+    brand.setAttribute('role', 'button');
+    brand.setAttribute('tabindex', '0');
+    brand.title = '처음 화면으로';
+    brand.addEventListener('click', goHome);
+    brand.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } });
+  });
 
   // 2. 상단 탭 연결
   on('topTabQuiz',  'click', ()=>routeTo('quiz'));
