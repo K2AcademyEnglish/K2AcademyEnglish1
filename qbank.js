@@ -1025,7 +1025,14 @@ const QB_TAGS = [
   { act: 'strip', label: '태그 지우기', title: '고른 부분의 태그를 모두 지웁니다' }
 ];
 
+// 목록에서 비어 있으면 노란 점으로 알려 줄 칸 (행 번호, 이름)
+const QB_REQUIRED = [[4, '난이도'], [6, 'Box1'], [15, '정답']];
+function qbMissing(w) {
+  return QB_REQUIRED.filter(([r]) => !String(w.v[r] == null ? '' : w.v[r]).trim() && !(w.f && w.f[r])).map(x => x[1]);
+}
+
 const QB = {
+  missCount: {},
   sheets: [], sheet: null, sel: null, work: {}, drafts: [], seq: 0, busy: false, showAns: true, bound: false, focus: null, prevMode: 'print'
 };
 
@@ -1206,7 +1213,7 @@ function qbRenderSheetSelect(keep) {
   QB.sheets.forEach(s => { (groups[label(s.name)] = groups[label(s.name)] || []).push(s); });
   const order = ['중1', '중2', '중3', '고1', '고2', '고3', '기타'];
   sel.innerHTML = '<option value="">시험지(시트) 선택</option>' + order.filter(g => groups[g]).map(g =>
-    `<optgroup label="${g}">` + groups[g].map(s => `<option value="${qbAttr(s.name)}">${qbEsc(s.name)} (${s.count})</option>`).join('') + '</optgroup>'
+    `<optgroup label="${g}">` + groups[g].map(s => `<option value="${qbAttr(s.name)}">${QB.missCount[s.name] ? '🟡 ' : ''}${qbEsc(s.name)} (${s.count})</option>`).join('') + '</optgroup>'
   ).join('');
   const want = keep || (QB.sheet && QB.sheet.name) || '';
   if (want) sel.value = want;
@@ -1293,6 +1300,20 @@ function qbRenderList() {
   if (!QB.sheet) { box.innerHTML = '<div class="qb-empty">왼쪽 위에서 시험지를 고르세요.</div>'; qbUpdateDirty(); return; }
   const q = (document.getElementById('qbFilter') || {}).value || '';
   const needle = q.trim().toLowerCase();
+  // 난이도·Box1·정답 중 빈 칸이 있는 문항 수 → 시트 고르기 상자에 🟡 표시
+  const missOf = it => {
+    if (it.col && (it.col.hidden || it.col.empty)) return [];
+    const w = QB.work[it.key] || (it.col ? { v: it.col.v, f: it.col.f } : it.draft.base);
+    if (it.col && !w.v[1] && !w.f[1] && !w.v[5]) return [];   // 출처·질문이 모두 없는 틀 칸은 빼기
+    return qbMissing(w);
+  };
+  const missN = qbListItems().filter(it => missOf(it).length).length;
+  if (!!QB.missCount[QB.sheet.name] !== !!missN) {
+    QB.missCount[QB.sheet.name] = missN;
+    const s = QB.sheets.find(x => x.name === QB.sheet.name), sel = document.getElementById('qbSheetSelect');
+    const opt = s && sel ? [...sel.options].find(o => o.value === s.name) : null;
+    if (opt) opt.textContent = (missN ? '🟡 ' : '') + s.name + ' (' + s.count + ')';
+  } else QB.missCount[QB.sheet.name] = missN;
   const rows = qbListItems().filter(it => {
     if (!needle) return true;
     const w = QB.work[it.key] || (it.col ? it.col : it.draft.base);
@@ -1308,9 +1329,11 @@ function qbRenderList() {
       if (qbChangedRows(it.key).length) chips.push('<span class="qb-chip qb-chip-dirty">수정됨</span>');
     }
     const label = qbShortId(w.v[0]) || (it.col ? qbColLetter(it.col.col + 1) + '열' : '(새 문항)');
+    const miss = missOf(it);
+    const dot = miss.length ? `<span class="qb-miss-dot" title="비어 있음: ${qbAttr(miss.join(', '))}" aria-label="비어 있음: ${qbAttr(miss.join(', '))}"></span>` : '';
     const stem = String(w.v[5] || '').replace(/<[^>]+>/g, '').slice(0, 40);
     return `<button type="button" class="qb-item${QB.sel === it.key ? ' active' : ''}${it.col && it.col.hidden ? ' is-hidden' : ''}" data-qb-item="${qbAttr(it.key)}">
-      <span class="qb-item-top"><b>${qbEsc(label)}</b><span class="qb-item-type">${qbEsc(w.v[2] || '유형 없음')}</span>${w.v[4] ? `<span class="qb-item-diff">난이도 ${qbEsc(w.v[4])}</span>` : ''}${chips.join('')}</span>
+      <span class="qb-item-top">${dot}<b>${qbEsc(label)}</b><span class="qb-item-type">${qbEsc(w.v[2] || '유형 없음')}</span>${w.v[4] ? `<span class="qb-item-diff">난이도 ${qbEsc(w.v[4])}</span>` : ''}${chips.join('')}</span>
       <span class="qb-item-stem">${qbEsc(stem || '(질문 없음)')}</span></button>`;
   });
   box.innerHTML = rows.length ? rows.join('') : '<div class="qb-empty">' + (needle ? '찾는 문항이 없습니다.' : '문항이 없습니다. [＋ 문항 추가]나 [📥 가져오기]로 넣으세요.') + '</div>';

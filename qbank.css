@@ -52,6 +52,7 @@ html body #qbankPage button.qb-item.active { background: #eff6ff !important; bor
 html body #qbankPage button.qb-item.is-hidden { opacity: .6; }
 #qbankPage .qb-item-top { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 #qbankPage .qb-item-type { font-size: 11px; color: #1e40af; background: #dbeafe; padding: 1px 6px; border-radius: 999px; }
+#qbankPage .qb-miss-dot { display: inline-block; flex: none; width: 9px; height: 9px; border-radius: 50%; background: #facc15; box-shadow: inset 0 0 0 1px #ca8a04; }
 #qbankPage .qb-item-diff { font-size: 11px; color: #64748b; }
 #qbankPage .qb-item-stem { font-size: 12px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #qbankPage .qb-chip { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: #f1f5f9; color: #475569; white-space: nowrap; }
