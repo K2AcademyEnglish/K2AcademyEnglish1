@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="notice-points.css?v=20261115e">
   <link rel="stylesheet" href="ink.css?v=20261115e">
   <link rel="stylesheet" href="qbank.css?v=20261117c">
+  <link rel="stylesheet" href="students.css?v=20261117a">
 </head>
 
 <body>
@@ -53,6 +54,7 @@
           <button class="top-tab" id="topTabAdminHistory" type="button" onclick="routeTo('admin-history')">📋 배부기록</button>
           <button class="top-tab" id="topTabAdminVocab" type="button" onclick="routeTo('admin-vocab')">📖 단어장조회</button>
           <button class="top-tab" id="topTabAdminQbank" type="button" onclick="routeTo('admin-qbank')">🗂 문제은행</button>
+          <button class="top-tab" id="topTabAdminStudents" type="button" onclick="routeTo('admin-students')">👥 학생관리</button>
           <button class="top-tab" id="topTabAdminNP" type="button" data-np="open:requests">📢 공지·포인트<span id="npAdminTabBadge" class="np-count" style="display:none;"></span></button>
         </div>
       </div>
@@ -611,6 +613,9 @@ border-top: 2px solid #2b6cb0;">
 <!-- 문제은행 편집기 (관리자): 내용은 qbank.js가 처음 열 때 만듭니다 -->
 <div class="panel wide" id="qbankPage"></div>
 
+<!-- 학생 관리 (관리자): 내용은 students.js가 처음 열 때 만듭니다 -->
+<div class="panel wide" id="studentsPage"></div>
+
 <aside id="navDrawer" class="drawer left">
   <div class="drawer-head">
     <div style="font-weight:800;">메뉴</div>
@@ -677,7 +682,8 @@ border-top: 2px solid #2b6cb0;">
   <script src="ink.js?v=20261115e"></script>
   <script src="admin-maker.js?v=20261116a"></script>
   <script src="qbank.js?v=20261117c"></script>
+  <script src="students.js?v=20261117a"></script>
   <script src="print-report.js?v=20261115e"></script>
-  <script src="app-core.js?v=20261115e"></script>
+  <script src="app-core.js?v=20261117a"></script>
 </body>
 </html>

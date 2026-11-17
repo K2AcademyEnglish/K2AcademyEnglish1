@@ -49,13 +49,17 @@ const PUBLIC_API_ = new Set([
   'getQuestionMetaIndex', 'getStudentQuestionStats', 'loadWeeklyStudentStats',
   // 알림 · 포인트 · 교환권 (학생)
   'getStudentHome', 'markNoticesRead', 'getMyPoints', 'requestPointExchange', 'cancelPointExchange',
+  // 미니게임: 오늘의 타로 (학생)
+  'getTarotStatus', 'drawTarot',
   // 알림 · 포인트 · 교환권 (관리자: 비밀번호 인증 필요)
   'adminGetPoints', 'adminAdjustPoints', 'adminCancelPointEntry', 'adminResolveExchange',
   'adminSendNotice', 'adminListNotices', 'adminDeleteNotice',
   // 속도 기록 (관리자)
   'adminGetPerf',
   // 문제은행 편집기 (관리자)
-  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden'
+  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden',
+  // 학생 관리 (관리자: 비밀번호 인증 필요)
+  'adminListStudents', 'adminAddStudents', 'adminUpdateStudent', 'adminUpdateStudents', 'adminStudentDataSummary', 'adminDeleteStudent'
 ]);
 
 // 관리자만 쓸 수 있는 기존 기능: 요청에 담긴 관리자 인증(auth)을 확인한 뒤에만 실행합니다.
@@ -1257,9 +1261,22 @@ function _resultContext_(userOrId, assignmentId) {
   if (!id || !aId) return null;
   const sheet = _logSS().getSheetByName('과제');
   if (!sheet) return null;
-  const matches = _findRowNumbers_(sheet, 1, aId, true);
-  if (!matches.length) return null;
-  const rowNumber = matches[0], row = sheet.getRange(rowNumber,1,1,9).getValues()[0];
+  // [속도] 과제 행 번호를 6시간 기억합니다. 읽은 행의 과제ID가 다르면(행 삭제 등) 예전처럼 다시 찾습니다.
+  const cache = CacheService.getScriptCache(), ck = aId.length <= 200 ? 'ASGN_ROW_v1_' + aId : '';
+  let rowNumber = 0, row = null;
+  if (ck) {
+    const hit = Number(cache.get(ck) || 0);
+    if (hit >= 2) {
+      const r = sheet.getRange(hit,1,1,9).getValues()[0];
+      if (String(r[0]).trim() === aId) { rowNumber = hit; row = r; }
+    }
+  }
+  if (!row) {
+    const matches = _findRowNumbers_(sheet, 1, aId, true);
+    if (!matches.length) return null;
+    rowNumber = matches[0]; row = sheet.getRange(rowNumber,1,1,9).getValues()[0];
+    if (ck) { try { cache.put(ck, String(rowNumber), 21600); } catch(e) {} }
+  }
   const owner = String(row[7] || '').trim();
   if (owner && owner.toLowerCase() !== id.toLowerCase()) throw new Error('학생과 과제가 일치하지 않습니다.');
   let qids;
@@ -1291,15 +1308,32 @@ function _withLock_(fn, waitMs) {
   try { return fn(); } finally { lock.releaseLock(); }
 }
 
+function _resultIndexCacheKey_(ctx) {
+  return ctx.key.length <= 200 ? 'RIDX_ROW_v1_' + ctx.key : '';
+}
+function _resultIndexFindIn_(ctx, sheet) {
+  const cache = CacheService.getScriptCache(), ck = _resultIndexCacheKey_(ctx);
+  if (ck) {
+    const hit = Number(cache.get(ck) || 0);
+    if (hit >= 2) {
+      const v = sheet.getRange(hit,1,1,8).getValues()[0];
+      if (String(v[0]).trim() === ctx.key) return {sheet,rowNumber:hit,values:v};
+    }
+  }
+  const matches = _findRowNumbers_(sheet,1,ctx.key,true);
+  if (!matches.length) return null;
+  const rowNumber=matches[0];
+  if (ck) { try { cache.put(ck, String(rowNumber), 21600); } catch(e) {} }
+  return {sheet,rowNumber,values:sheet.getRange(rowNumber,1,1,8).getValues()[0]};
+}
+// 색인 행이 있으면 돌려주고, 없으면 null (새로 만들지 않음 — 읽기 전용 경로용)
+function _resultIndexFind_(ctx) {
+  const sheet = _logSS().getSheetByName('과제결과_색인');
+  return sheet ? _resultIndexFindIn_(ctx, sheet) : null;
+}
 function _resultIndex_(ctx) {
-  const find = sheet => {
-    const matches = _findRowNumbers_(sheet,1,ctx.key,true);
-    if (!matches.length) return null;
-    const rowNumber=matches[0];
-    return {sheet,rowNumber,values:sheet.getRange(rowNumber,1,1,8).getValues()[0]};
-  };
-  const existingSheet = _logSS().getSheetByName('과제결과_색인');
-  const found = existingSheet ? find(existingSheet) : null;
+  const find = sheet => _resultIndexFindIn_(ctx, sheet);
+  const found = _resultIndexFind_(ctx);
   if (found) return found;
   // 새 색인 행 추가만 잠금 안에서 처리 (다른 요청이 먼저 만들었는지 다시 확인)
   return _withLock_(() => {
@@ -1309,6 +1343,8 @@ function _resultIndex_(ctx) {
     const rowNumber=sheet.getLastRow()+1;
     const values=[ctx.key,ctx.id,ctx.assignmentId,ctx.resultSheetName,0,0,'DIRTY',''];
     sheet.getRange(rowNumber,1,1,8).setValues([values]);
+    const ck=_resultIndexCacheKey_(ctx);
+    if (ck) { try { CacheService.getScriptCache().put(ck, String(rowNumber), 21600); } catch(e) {} }
     return {sheet,rowNumber,values};
   });
 }
@@ -1334,8 +1370,8 @@ function _storedResultRows_(ctx,entry) {
   return valid?rows:null;
 }
 
-function _writeAssignmentResult_(ctx,entry,history,stamp) {
-  const existing=_storedResultRows_(ctx,entry);
+function _writeAssignmentResult_(ctx,entry,history,stamp,knownRows) {
+  const existing=knownRows || _storedResultRows_(ctx,entry);
   let questions;
   if (existing) {
     questions=existing.map(row=>({qid:String(row[4]),extId:String(row[5]),type:String(row[6]),difficulty:String(row[7]),answer:String(row[8])}));
@@ -1443,6 +1479,24 @@ function _resultResponse_(rows) {
   return {qs,history};
 }
 
+/* [속도] 과제결과 시트(READY)에 저장된 문항별 최신 답으로 풀이 기록을 만듭니다.
+ * 전체 로그 시트를 검색하는 getAssignmentHistory와 같은 모양을 돌려줍니다.
+ */
+function _historyFromResultRows_(rows, qids) {
+  const history={};
+  _arr(qids).forEach(qid=>{history[qid]={empty:true,wrongCount:0,wasWrong:false,isCorrect:false,selected:'',correctAnswer:''};});
+  rows.forEach(row=>{
+    const qid=String(row[4]);
+    if(!Object.prototype.hasOwnProperty.call(history,qid)) return;
+    const selected=String(row[9]||'').trim();
+    const wrongCount=Number(row[11])||0;
+    if(selected==='' && !wrongCount) return;
+    history[qid]={empty:false,selected,isCorrect:row[10]===true,wrongCount,wasWrong:row[12]===true,
+      correctAnswer:String(row[8]||''),lastSubmittedAt:String(row[13]||'')};
+  });
+  return history;
+}
+
 // 최근 과제 상세와 배부기록 결과표 전용. 본문·보기·해설을 읽지 않습니다.
 function getAssignmentResult(userOrId, ignoredQids, assignmentId) {
   _guardDirect_();
@@ -1476,32 +1530,53 @@ function logAttempt(payload) {
     }
     const ts=_nowIso();
     const answers=(payload.answers||[]).filter(a=>a.selected && String(a.selected).trim()!=='');
-    const ctx=payload.sessionId?_resultContext_(user,sessionId):null;
+    let ctx=null;
+    try { ctx=payload.sessionId?_resultContext_(user,sessionId):null; } catch(e) { ctx=null; }
     const entry=ctx?_resultIndex_(ctx):null;
-    if (entry) _markResultDirty_(entry); // 도중에 멈춰도 다음 조회 때 다시 계산되도록 먼저 표시
     const now=new Date(),tz=Session.getScriptTimeZone();
     const year=Utilities.formatDate(now,tz,'yyyy');
     const quarter=Math.ceil(Number(Utilities.formatDate(now,tz,'M'))/3);
     const rows=answers.map(a=>[ts,sessionId,String(user.id).trim(),_S(a.qid),String(_S(a.qid).split('!')[1]||''),
       _S(a.extId||''),_S(a.source),_S(a.type),_S(a.grade),_S(a.year),_S(a.month),_S(a.question).slice(0,200),
       _S(a.correctAnswer),_S(a.selected),a.isCorrect===true]);
-    // 잠금은 로그 시트 끝에 행을 붙이는 순간에만 잡습니다.
-    if(rows.length) {
-      _withLock_(() => {
+    // 결과표 상태 확인 · DIRTY 표시 · 로그 추가를 한 잠금 안에서 처리합니다.
+    // (동시에 들어온 제출이 서로의 답안을 빠뜨리지 않도록 순서를 고정)
+    let stamp='', wasReady=false;
+    _withLock_(() => {
+      if (entry) {
+        entry.values=entry.sheet.getRange(entry.rowNumber,1,1,8).getValues()[0];
+        wasReady=String(entry.values[6])==='READY';
+        stamp=_markResultDirty_(entry);
+      }
+      if(rows.length) {
         const currentLog=ensureSheetIn_(QBANK_LOG_BOOK_ID,`Logs_${year}_${quarter}Q`,[
           'Timestamp','SessionId','Name','QID','SheetCol','ExtID','Source','Type','Grade','Year','Month','Question','CorrectAnswer','Selected','IsCorrect'
         ]);
         currentLog.getRange(currentLog.getLastRow()+1,1,rows.length,15).setValues(rows);
-      }, 30000);
-    }
+      }
+    }, 30000);
     logCommitted=true;count=rows.length;
     if (attemptKey) { try { cache.put(attemptKey,String(count),21600); } catch(e) {} }
     if(ctx) {
-      // 이후 결과표 갱신은 잠금 밖에서 처리합니다. 도중 실패해도 DIRTY로 남아 다음 조회에서 복구됩니다.
-      const stamp=_markResultDirty_(entry);
-      const history=getAssignmentHistory({id:ctx.id},ctx.qids,sessionId,true);
+      // [속도] 직전 결과표가 최신(READY)이면 그 위에 이번 답안만 더합니다. 전체 로그 검색은 결과표가 없을 때만.
+      const stored=wasReady?_storedResultRows_(ctx,entry):null;
+      let history;
+      if (stored) {
+        history=_historyFromResultRows_(stored,ctx.qids);
+        answers.forEach(a=>{
+          const qid=_S(a.qid);
+          if(!Object.prototype.hasOwnProperty.call(history,qid)) return;
+          const h=history[qid], correct=a.isCorrect===true;
+          h.empty=false;
+          if(!correct) {h.wrongCount++;h.wasWrong=true;}
+          h.selected=String(a.selected).trim();h.isCorrect=correct;
+          h.correctAnswer=_S(a.correctAnswer);h.lastSubmittedAt=ts;
+        });
+      } else {
+        history=getAssignmentHistory({id:ctx.id},ctx.qids,sessionId,true);
+      }
       _syncResultSummary_(ctx,history,payload.isComplete);
-      _writeAssignmentResult_(ctx,entry,history,stamp);
+      _writeAssignmentResult_(ctx,entry,history,stamp,stored);
     }
     return {ok:true,sessionId,count};
   } catch(e) {
@@ -1513,13 +1588,22 @@ function logAttempt(payload) {
 
 /* [신규] 문제와 풀이 기록을 한 번에 로딩하는 통합 함수 */
 function loadRetryData(user, qids, assignmentId, viewMode) {
-  // 1. 문제 정보 가져오기
+  // 1. 문제 정보 가져오기 (1시간 캐시)
   const qs = getQuestionsByQids(qids, viewMode === 'omr');
-  
-  // 2. 풀이 기록 가져오기
-  // (기존 getAssignmentHistory 로직 재사용)
-  const history = getAssignmentHistory(user, qids, assignmentId);
-  
+
+  // 2. 풀이 기록: [속도] 과제결과 시트에 최신 결과(READY)가 있으면 그것을 씁니다.
+  //    없거나 갱신 중(DIRTY)이면 예전처럼 로그 시트를 검색합니다.
+  let history = null;
+  try {
+    const ctx = _resultContext_(user, assignmentId);
+    const entry = ctx ? _resultIndexFind_(ctx) : null;
+    if (entry && String(entry.values[6]) === 'READY') {
+      const rows = _storedResultRows_(ctx, entry);
+      if (rows) history = _historyFromResultRows_(rows, qids);
+    }
+  } catch (e) { history = null; }
+  if (!history) history = getAssignmentHistory(user, qids, assignmentId);
+
   return { qs: qs, history: history };
 }
 
@@ -2168,6 +2252,7 @@ function doLogin(inputId, includeManagedStudents, password) {
       if (rawRole === '관리자' || rawRole.toLowerCase() === 'manager') {
         roleCode = 'manager';
       }
+      if (rawRole === '휴원') return { error: '휴원 중인 계정입니다. 선생님께 문의해 주십시오.' };
 
       const result = {
         success: true,
@@ -2186,6 +2271,10 @@ function doLogin(inputId, includeManagedStudents, password) {
       }
       if (includeManagedStudents === true && roleCode === 'manager') {
         result.managedStudents = _managedStudentsFromRows_(data, rowId);
+      }
+      if (roleCode !== 'manager') {
+        // 학생은 로그인 응답에 공지·포인트를 같이 보내, 메인 화면이 뜰 때 공지도 함께 보이게 합니다.
+        try { result.home = getStudentHome(rowId); } catch (e) { /* 공지를 못 읽어도 로그인은 진행 */ }
       }
       return result;
     }
@@ -2914,7 +3003,7 @@ function _npMembers_() {
     const isMgr = (raw === '관리자' || raw.toLowerCase() === 'manager');
     list.push({
       row: i + 2, id: id, name: String(r[1] || '').trim(),
-      role: isMgr ? 'manager' : 'student',
+      role: isMgr ? 'manager' : raw === '휴원' ? 'inactive' : 'student',
       d: String(r[3] || '').trim()   // 학생: 담당 관리자 ID / 관리자: 비밀번호(암호화)
     });
   });
@@ -3106,7 +3195,8 @@ function getStudentHome(user) {
   return {
     notices: notices,
     unread: notices.filter(n => !n.read).length,
-    points: { balance: st.balances[me.id] || 0, pending: st.pending[me.id] || 0, unit: POINT_EXCHANGE_UNIT }
+    points: { balance: st.balances[me.id] || 0, pending: st.pending[me.id] || 0, unit: POINT_EXCHANGE_UNIT },
+    tarot: { on: TAROT_ON, cost: TAROT_COST }
   };
 }
 
@@ -3165,6 +3255,68 @@ function cancelPointExchange(user, requestId) {
     if (_npStr_(rows[idx][5]) !== '대기') throw new Error('이미 처리된 신청입니다.');
     sh.getRange(idx + 2, 6, 1, 5).setNumberFormat('@').setValues([['취소', id, '본인', _nowIso(), '']]);
     return { ok: true };
+  });
+}
+
+/* ================= 미니게임: 오늘의 타로 =================
+ * 학생이 포인트를 써서 카드 1장을 뽑습니다. 결과는 메시지뿐이고 포인트를 돌려주지 않습니다.
+ * 카드 그림·해석 문구는 화면 파일(tarot.js)에 있고, 서버는 '몇 번 카드·어떤 행운 아이템'만 정합니다.
+ * 포인트내역 시트에 구분 '타로'로 한 줄 남깁니다. (관리자 포인트 화면에서 보이고, 취소하면 환불)
+ */
+const TAROT_ON = true;            // false로 바꾸면 학생 화면에서 타로 버튼이 사라집니다
+const TAROT_COST = 10;            // 한 번 뽑는 데 드는 포인트
+const TAROT_DAILY = 1;            // 하루에 뽑을 수 있는 횟수
+const TAROT_TOPICS = ['today', 'study', 'friend', 'love', 'money'];   // 'love'(연애운)를 빼면 그 주제가 사라집니다
+const TAROT_CARD_COUNT = 22;      // 메이저 아르카나 22장 (tarot.js와 같아야 함)
+const TAROT_COLOR_COUNT = 10;     // 행운의 색 개수 (tarot.js와 같아야 함)
+const TAROT_ITEM_COUNT = 12;      // 행운 아이템 개수 (tarot.js와 같아야 함)
+
+function _tarotToday_(rows, studentId) {
+  const today = _npDay_(0);
+  return rows.filter(r => _npStr_(r[2]) === studentId && _npStr_(r[6]) === '타로'
+                          && _npStr_(r[1]).indexOf(today) === 0 && _npStr_(r[11]) !== 'Y');
+}
+function _tarotParse_(r) {
+  // 관련ID: tarot|카드|주제|색|숫자|아이템
+  const p = _npStr_(r[10]).split('|');
+  if (p[0] !== 'tarot') return null;
+  return { card: Number(p[1]), topic: p[2], color: Number(p[3]), number: Number(p[4]), item: Number(p[5]), time: _npStr_(r[1]) };
+}
+// 타로 버튼을 눌렀을 때: 가격·남은 횟수·오늘 이미 뽑은 결과
+function getTarotStatus(user) {
+  const me = _npStudent_(_npMembers_().list, _npUserId_(user));
+  const rows = _npRows_(_npSheet_(NP_POINT_SHEET, NP_POINT_HEADERS), NP_POINT_HEADERS.length);
+  const used = _tarotToday_(rows, me.id);
+  const st = _pointState_();
+  return {
+    on: TAROT_ON, cost: TAROT_COST, daily: TAROT_DAILY, topics: TAROT_TOPICS,
+    left: Math.max(0, TAROT_DAILY - used.length),
+    today: used.map(_tarotParse_).filter(Boolean),
+    points: { balance: st.balances[me.id] || 0, pending: st.pending[me.id] || 0, unit: POINT_EXCHANGE_UNIT }
+  };
+}
+// 카드 뽑기: 잔액·횟수 확인 → 포인트 차감 → 카드 결정을 잠금 안에서 한 번에 (새로고침·연타로 공짜 뽑기 방지)
+function drawTarot(user, topic) {
+  if (!TAROT_ON) throw new Error('지금은 타로를 볼 수 없습니다.');
+  topic = String(topic || '');
+  if (TAROT_TOPICS.indexOf(topic) === -1) throw new Error('운세 주제를 다시 골라 주세요.');
+  return _withLock_(function () {
+    const me = _npStudent_(_npMembers_().list, _npUserId_(user));
+    const sh = _npSheet_(NP_POINT_SHEET, NP_POINT_HEADERS);
+    const rows = _npRows_(sh, NP_POINT_HEADERS.length);
+    const used = _tarotToday_(rows, me.id);
+    if (used.length >= TAROT_DAILY) throw new Error('오늘은 이미 타로를 봤어요. 내일 다시 만나요!');
+    const st = _pointState_();
+    const balance = st.balances[me.id] || 0, pending = st.pending[me.id] || 0;
+    if (balance - pending < TAROT_COST) throw new Error('포인트가 부족해요. (필요 ' + TAROT_COST + 'pt · 사용 가능 ' + Math.max(0, balance - pending) + 'pt)');
+    const pick = n => Math.floor(Math.random() * n);
+    const res = { card: pick(TAROT_CARD_COUNT), topic: topic, color: pick(TAROT_COLOR_COUNT), number: 1 + pick(50), item: pick(TAROT_ITEM_COUNT), time: _nowIso() };
+    const topicName = { today: '오늘의 운세', study: '학업·시험운', friend: '친구운', love: '연애운', money: '용돈운' }[topic] || topic;
+    const bal = balance - TAROT_COST;
+    _npAppend_(sh, [[_npId_('P'), res.time, me.id, me.name, -TAROT_COST, bal, '타로', '오늘의 타로 · ' + topicName,
+                     me.id, me.name, ['tarot', res.card, res.topic, res.color, res.number, res.item].join('|'), '']]);
+    return { ok: true, result: res, left: Math.max(0, TAROT_DAILY - used.length - 1),
+             points: { balance: bal, pending: pending, unit: POINT_EXCHANGE_UNIT } };
   });
 }
 
@@ -3504,6 +3656,86 @@ function qbWriteQuestions(name, items) {
 }
 
 /**
+ * 시험지 시트 순서·색 규칙 (문제은행 DB 엑셀 기준)
+ *  학년(h1 → h2 → h3) 안에서
+ *   1) 모의고사  h1_24_03 : 연도·월 순, 원문 → 기출(h1_24_03기출) → 변형(h1_24_03변형)
+ *   2) 교재·교과서 h1_25_CE1NE(M)_1 : 학년 맨 끝, 출판사(알파벳 순) → 과정(CE1 → CE2) → 단원, 원문 → 기출 → 변형
+ *  탭 색: 03월 원문은 학년 색(h1 노랑·h2 초록·h3 분홍), 기출 하늘색, 변형 파랑(교재도), 교재 원문 노랑, 나머지는 색 없음
+ */
+function _qbSheetKey_(name) {
+  name = String(name || '').trim();
+  let m = /^([A-Za-z]+)(\d+)_(.+?)_?(기출|변형)?$/.exec(name);
+  if (!m) return null;
+  const vr = m[4] === '기출' ? 1 : (m[4] === '변형' ? 2 : 0);
+  const k = { prefix: m[1].toLowerCase(), grade: Number(m[2]), variant: vr };
+  const mm = /^(\d{2}|\d{4})_(\d{1,2})$/.exec(m[3]);
+  if (mm) {
+    const y = Number(mm[1]);
+    k.kind = 0; k.year = y < 100 ? 2000 + y : y; k.month = Number(mm[2]);
+  } else {
+    const mt = /^(\d{2}|\d{4})_(.+)$/.exec(m[3]);
+    k.kind = 1;
+    k.code = mt ? mt[2] : m[3];
+    const y = mt ? Number(mt[1]) : 0;
+    k.year = y && y < 100 ? 2000 + y : y;
+    // 교재 코드 나누기: CE1NE(M)_1 → 과정 CE·1, 출판사 NE, 저자 (M), 단원 1
+    const bk = /^([A-Za-z]*)(\d+)([A-Za-z]+)(\([^)]*\))?(?:_(\d+))?$/.exec(k.code);
+    if (bk) { k.course = bk[1].toUpperCase(); k.level = Number(bk[2]); k.pub = bk[3].toUpperCase(); k.author = bk[4] || ''; k.unit = bk[5] ? Number(bk[5]) : 0; }
+  }
+  return k;
+}
+function _qbCmpKey_(a, b) {
+  if (a.grade !== b.grade) return a.grade < b.grade ? -1 : 1;
+  if (a.kind !== b.kind) return a.kind < b.kind ? -1 : 1;           // 모의고사 먼저, 교재는 학년 끝
+  if (a.kind === 0) {
+    if (a.year !== b.year) return a.year < b.year ? -1 : 1;
+    if (a.month !== b.month) return a.month < b.month ? -1 : 1;
+  } else {
+    // 교재: 출판사(알파벳 순) → 저자 → 과정(CE1 → CE2) → 단원(_1, _2 …)
+    //   예) CE1NE(M) → CE2NE(M) → CE1YBM(P) → CE2YBM(P)
+    const txt = (x, y) => String(x || '').localeCompare(String(y || ''), 'en', { numeric: true, sensitivity: 'base' });
+    if (a.pub && b.pub) {
+      const c = txt(a.pub, b.pub) || txt(a.author, b.author) || txt(a.course, b.course) || (a.level - b.level) || (a.unit - b.unit);
+      if (c) return c;
+    } else {
+      const c = txt(a.pub || a.code, b.pub || b.code);   // 규칙이 다른 교재(예: ST)는 이름으로
+      if (c) return c;
+    }
+    if (a.year !== b.year) return a.year < b.year ? -1 : 1;
+  }
+  return a.variant - b.variant;                                       // 원문 → 기출 → 변형
+}
+/**
+ * 새 시트를 넣을 자리(0부터 세는 위치).
+ * 같은 학교급(h 등) 시트를 탭 순서대로 보며 새 이름보다 앞서는 마지막 시트 바로 뒤에 넣습니다.
+ * 앞서는 시트가 없으면 첫 시트 바로 앞, 규칙에 맞는 시트가 하나도 없으면 맨 끝.
+ */
+function _qbSheetInsertIndex_(ss, name) {
+  const sheets = ss.getSheets();
+  const key = _qbSheetKey_(name);
+  if (!key) return sheets.length;
+  const peers = sheets.map(sh => ({ sh: sh, k: _qbSheetKey_(sh.getName()) })).filter(x => x.k && x.k.prefix === key.prefix);
+  if (!peers.length) return sheets.length;
+  let ai = -1;
+  peers.forEach((x, i) => { if (_qbCmpKey_(x.k, key) <= 0) ai = i; });
+  const after = ai >= 0 ? peers[ai] : null, next = peers[ai + 1] || null;
+  // 같은 학년 시트 옆에 붙입니다. (사이에 '양식' 같은 다른 시트가 끼어 있어도 학년 묶음이 갈라지지 않게)
+  if (after && (after.k.grade === key.grade || !next)) return after.sh.getIndex();  // getIndex()는 1부터 → 바로 뒤
+  if (next) return next.sh.getIndex() - 1;                                           // 바로 앞
+  return after ? after.sh.getIndex() : sheets.length;
+}
+// 탭 색 (없으면 null = 색 없음)
+function _qbSheetColor_(name) {
+  const k = _qbSheetKey_(name);
+  if (!k || k.prefix !== 'h') return null;
+  if (k.variant === 1) return '#00ffff';                              // 기출: 하늘색 (교재도 같음)
+  if (k.variant === 2) return '#0000ff';                              // 변형: 파랑 (교재도 같음)
+  if (k.kind === 1) return '#ffff00';                                 // 교재·교과서 원문: 노랑
+  if (k.month === 3) return ({ 1: '#ffff00', 2: '#00ff00', 3: '#ff00ff' })[k.grade] || null; // 학년 첫 회차(03월)
+  return null;
+}
+
+/**
  * 새 시험지(시트) 만들기.
  * opts: { from, to: 번호 틀(예: 18~45, 비우면 틀 없이), types: {번호: 유형}, linkLong: 장문(41-42, 43-45) 연결 수식 넣기 }
  * 틀 칸에는 ID·유형만 넣고 출처는 비워 둡니다. → 출처를 넣고 저장하기 전까지 학생 출제 목록에 나오지 않습니다.
@@ -3517,7 +3749,11 @@ function qbCreateSheet(name, opts) {
     const ss = _contentsSS();
     if (ss.getSheetByName(name)) throw new Error('같은 이름의 시트가 이미 있습니다: ' + name);
     const tpl = ss.getSheetByName('양식');
-    const sheet = tpl ? ss.insertSheet(name, ss.getSheets().length, { template: tpl }) : ss.insertSheet(name, ss.getSheets().length);
+    // 학년·연도·월 순서에 맞는 자리에 넣습니다. (예: h3_21_03 → h2_26_03 과 h3_22_03 사이) 이름 규칙이 다르면 맨 끝.
+    const at = _qbSheetInsertIndex_(ss, name);
+    const sheet = tpl ? ss.insertSheet(name, at, { template: tpl }) : ss.insertSheet(name, at);
+    // 양식의 탭 색(빨강)이 따라오지 않게, 규칙에 맞는 색으로 바꿉니다(해당 없으면 색 없음).
+    try { sheet.setTabColor(_qbSheetColor_(name)); } catch (e) {}
     // 양식에 들어 있던 예시 문항은 지우고, A열 항목 이름을 맞춥니다.
     if (sheet.getLastColumn() > 1) sheet.getRange(1, 2, Math.max(sheet.getMaxRows(), QB_ROWS), sheet.getLastColumn() - 1).clearContent().clearNote();
     sheet.getRange(1, 1, QB_ROWS, 1).setValues(QB_LABELS.map(x => [x]));
@@ -3618,4 +3854,273 @@ function _qbSyncIndex_(sheet) {
     'QBANK_V2_DATA_h1_count', 'QBANK_V2_DATA_h2_count', 'QBANK_V2_DATA_h3_count']); } catch (e) {}
   _bumpQcacheVer_();
   try { PropertiesService.getScriptProperties().setProperty('QBANK_INDEX_VERSION', 'v' + Date.now()); } catch (e) {}
+}
+
+
+/* ===================== [학생 관리] (관리자) =====================
+ * 멤버 시트: A ID · B 이름 · C 권한(학생/휴원/관리자) · D 담당 관리자ID · (머리글 '메모' 열)
+ *  - ID는 바꾸지 않습니다. 풀이 기록·과제·포인트·단어장이 모두 ID로 이어져 있습니다.
+ *  - 휴원: 로그인·출제 대상·공지 대상에서 빠지고, 기록은 그대로 둡니다.
+ *  - 삭제: 멤버에서만 지우거나, 그 학생의 기록까지 모두 지웁니다(이름을 다시 입력해야 실행).
+ */
+const ST_MEMO_HEADER = '메모';
+const ST_ID_RE = /^[0-9A-Za-z가-힣_.\-]{2,30}$/;
+
+function _stMemberSheet_() {
+  const sh = _logSS().getSheetByName('멤버');
+  if (!sh) throw new Error('멤버 시트가 없습니다.');
+  return sh;
+}
+function _stMemoCol_(sh, create) {
+  const lastCol = Math.max(sh.getLastColumn(), 4);
+  const head = sh.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h || '').trim());
+  let c = head.indexOf(ST_MEMO_HEADER) + 1;
+  if (c > 4 || !create) return c > 4 ? c : 0;
+  c = lastCol + 1;
+  if (sh.getMaxColumns() < c) sh.insertColumnsAfter(sh.getMaxColumns(), c - sh.getMaxColumns());
+  sh.getRange(1, c).setValue(ST_MEMO_HEADER);
+  return c;
+}
+function _stRole_(raw) {
+  raw = String(raw || '').trim();
+  if (raw === '관리자' || raw.toLowerCase() === 'manager') return 'manager';
+  if (raw === '휴원') return 'inactive';
+  return 'student';
+}
+// 멤버 전체 (메모 포함)
+function _stReadMembers_(sh) {
+  const last = sh.getLastRow();
+  const memoCol = _stMemoCol_(sh, false);
+  const width = Math.max(4, memoCol);
+  const data = last > 1 ? sh.getRange(2, 1, last - 1, width).getValues() : [];
+  const list = [];
+  data.forEach((r, i) => {
+    const id = String(r[0] || '').trim();
+    if (!id) return;
+    list.push({ row: i + 2, id: id, name: String(r[1] || '').trim(), role: _stRole_(r[2]),
+      managerId: _stRole_(r[2]) === 'manager' ? '' : String(r[3] || '').trim(),
+      memo: memoCol ? String(r[memoCol - 1] || '') : '' });
+  });
+  return list;
+}
+function _stCleanStudent_(s, members, isNew) {
+  const id = String(s.id || '').trim(), name = String(s.name || '').replace(/[\r\n]+/g, ' ').trim();
+  const managerId = String(s.managerId || '').trim();
+  if (isNew && !ST_ID_RE.test(id)) throw new Error(`ID "${id}"는 쓸 수 없습니다. (2~30자, 한글·영문·숫자·_ . - 만)`);
+  if (!name || name.length > 20) throw new Error(`이름을 1~20자로 적어 주십시오. (${id})`);
+  if (managerId && !members.some(m => m.role === 'manager' && m.id === managerId)) throw new Error(`담당 선생님 ID "${managerId}"를 찾을 수 없습니다.`);
+  return { id: id, name: name, managerId: managerId, status: s.status === '휴원' ? '휴원' : '학생', memo: String(s.memo == null ? '' : s.memo).slice(0, 500) };
+}
+
+// 학생 목록 + 포인트·과제 요약
+function adminListStudents(auth) {
+  const me = _requireManager_(auth);
+  const members = _stReadMembers_(_stMemberSheet_());
+  const bal = {};
+  try { const st = _pointState_(); Object.assign(bal, st.balances); } catch (e) {}
+  const asg = {};
+  const ash = _logSS().getSheetByName('과제');
+  if (ash && ash.getLastRow() > 1) {
+    ash.getRange(2, 1, ash.getLastRow() - 1, 8).getValues().forEach(r => {
+      const sid = String(r[7] || '').trim();
+      if (!sid) return;
+      const a = asg[sid] || (asg[sid] = { total: 0, done: 0, last: '' });
+      a.total++;
+      if (String(r[6]).trim() === '완료') a.done++;
+      const d = r[1] instanceof Date ? Utilities.formatDate(r[1], Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(r[1] || '').slice(0, 10);
+      if (d > a.last) a.last = d;
+    });
+  }
+  return {
+    me: { id: me.id, name: me.name },
+    managers: members.filter(m => m.role === 'manager').map(m => ({ id: m.id, name: m.name })),
+    students: members.filter(m => m.role !== 'manager').map(m => {
+      const a = asg[m.id] || { total: 0, done: 0, last: '' };
+      return { id: m.id, name: m.name, managerId: m.managerId, status: m.role === 'inactive' ? '휴원' : '재원', memo: m.memo,
+        points: bal[m.id] || 0, asgTotal: a.total, asgDone: a.done, lastAsg: a.last };
+    }).sort((x, y) => x.name.localeCompare(y.name))
+  };
+}
+
+// 학생 추가(여러 명). list = [{id, name, managerId, status, memo}]  → { added:[id], skipped:[{id, reason}] }
+function adminAddStudents(auth, list) {
+  _requireManager_(auth);
+  list = Array.isArray(list) ? list.slice(0, 300) : [];
+  if (!list.length) throw new Error('추가할 학생이 없습니다.');
+  return _withLock_(() => {
+    const sh = _stMemberSheet_();
+    const members = _stReadMembers_(sh);
+    const taken = new Set(members.map(m => m.id.toLowerCase()));
+    const rows = [], added = [], skipped = [];
+    list.forEach(s => {
+      let c;
+      try { c = _stCleanStudent_(s, members, true); } catch (e) { skipped.push({ id: String(s.id || ''), reason: e.message }); return; }
+      if (taken.has(c.id.toLowerCase())) { skipped.push({ id: c.id, reason: '이미 있는 ID입니다.' }); return; }
+      taken.add(c.id.toLowerCase());
+      rows.push(c); added.push(c.id);
+    });
+    if (rows.length) {
+      const needMemo = rows.some(r => r.memo);
+      const memoCol = _stMemoCol_(sh, needMemo);
+      const width = Math.max(4, memoCol);
+      const start = sh.getLastRow() + 1;
+      if (sh.getMaxRows() < start + rows.length - 1) sh.insertRowsAfter(sh.getMaxRows(), start + rows.length - 1 - sh.getMaxRows());
+      sh.getRange(start, 1, rows.length, 1).setNumberFormat('@');      // 0으로 시작하는 ID가 숫자로 바뀌지 않게
+      sh.getRange(start, 1, rows.length, width).setValues(rows.map(r => {
+        const v = [r.id, r.name, r.status, r.managerId];
+        while (v.length < width) v.push('');
+        if (memoCol) v[memoCol - 1] = r.memo;
+        return v;
+      }));
+    }
+    return { added: added, skipped: skipped };
+  }, 30000);
+}
+
+// 학생 정보 변경: s = {id, name, managerId, status, memo}  (ID는 바꾸지 않습니다)
+function adminUpdateStudent(auth, s) {
+  _requireManager_(auth);
+  return _withLock_(() => {
+    const sh = _stMemberSheet_();
+    const members = _stReadMembers_(sh);
+    const m = members.find(x => x.id === String(s && s.id || '').trim() && x.role !== 'manager');
+    if (!m) throw new Error('학생을 찾을 수 없습니다. 목록을 새로 고쳐 주십시오.');
+    const c = _stCleanStudent_(s, members, false);
+    sh.getRange(m.row, 2, 1, 3).setValues([[c.name, c.status, c.managerId]]);
+    if (c.memo !== m.memo) sh.getRange(m.row, _stMemoCol_(sh, true)).setValue(c.memo);
+    if (c.name !== m.name) { try { CacheService.getScriptCache().remove(_getVocabCacheKey({ id: m.id })); } catch (e) {} }
+    return { ok: true };
+  }, 20000);
+}
+
+// 여러 학생 한 번에: patch = { managerId?: '', status?: '재원'|'휴원' }
+function adminUpdateStudents(auth, ids, patch) {
+  _requireManager_(auth);
+  ids = (Array.isArray(ids) ? ids : []).map(x => String(x).trim()).filter(Boolean);
+  patch = patch || {};
+  if (!ids.length) throw new Error('학생을 고르십시오.');
+  return _withLock_(() => {
+    const sh = _stMemberSheet_();
+    const members = _stReadMembers_(sh);
+    if (patch.managerId != null && patch.managerId !== '' && !members.some(m => m.role === 'manager' && m.id === patch.managerId)) throw new Error('담당 선생님을 찾을 수 없습니다.');
+    let n = 0;
+    members.filter(m => m.role !== 'manager' && ids.indexOf(m.id) !== -1).forEach(m => {
+      if (patch.managerId != null) sh.getRange(m.row, 4).setValue(String(patch.managerId));
+      if (patch.status === '휴원' || patch.status === '재원') sh.getRange(m.row, 3).setValue(patch.status === '휴원' ? '휴원' : '학생');
+      n++;
+    });
+    return { updated: n };
+  }, 20000);
+}
+
+/* ---------- 학생 기록 찾기·지우기 ---------- */
+// 학생 기록이 있는 곳: [{ss, sheet, col, kind, clear?}]  clear=true면 행을 지우지 않고 내용만 비웁니다(다른 학생 행 위치 보존).
+function _stDataPlaces_() {
+  const log = _logSS();
+  const places = [];
+  log.getSheets().forEach(sh => {
+    const n = sh.getName();
+    if (n === QBANK_MASTER_LOG_SHEET || n.indexOf('Logs_') === 0) places.push({ sheet: sh, col: 3, kind: 'logs' });
+    else if (n === '과제') places.push({ sheet: sh, col: 8, kind: 'assignments' });
+    else if (n === '과제결과_색인') places.push({ sheet: sh, col: 2, kind: 'resultIndex' });
+    else if (n.indexOf('과제결과_') === 0) places.push({ sheet: sh, col: 2, kind: 'results', clear: true });
+    else if (n === NP_POINT_SHEET) places.push({ sheet: sh, col: 3, kind: 'points' });
+    else if (n === NP_EXCHANGE_SHEET) places.push({ sheet: sh, col: 3, kind: 'exchanges' });
+    else if (n === NP_READ_SHEET) places.push({ sheet: sh, col: 2, kind: 'reads' });
+  });
+  try {
+    const vss = SpreadsheetApp.openById(VOCAB_SHEET_ID);
+    const vl = vss.getSheetByName(VOCAB_LOG_SHEET);
+    if (vl) { const c = _vocabLogSheet_(vss).idCol; places.push({ sheet: vl, col: c, kind: 'vocabLogs' }); }
+  } catch (e) {}
+  return places;
+}
+function _stVocabSheets_(id) {
+  try {
+    return SpreadsheetApp.openById(VOCAB_SHEET_ID).getSheets().filter(sh => sh.getName().indexOf(id + '(') === 0);
+  } catch (e) { return []; }
+}
+// 이 학생에게만 간 알림(지정) / 여러 명에게 간 알림
+function _stNoticeRows_(id) {
+  const sh = _logSS().getSheetByName(NP_NOTICE_SHEET);
+  if (!sh || sh.getLastRow() < 2) return { sheet: sh, only: [], shared: [] };
+  const vals = sh.getRange(2, 6, sh.getLastRow() - 1, 2).getValues();
+  const only = [], shared = [];
+  vals.forEach((r, i) => {
+    if (String(r[0]).trim() !== '지정') return;
+    const ids = String(r[1] || '').split(',').map(x => x.trim()).filter(Boolean);
+    if (ids.indexOf(id) === -1) return;
+    if (ids.length === 1) only.push(i + 2); else shared.push({ row: i + 2, ids: ids });
+  });
+  return { sheet: sh, only: only, shared: shared };
+}
+// 연속 구간으로 묶어 아래쪽부터 지웁니다. 구간이 너무 많으면 남길 행만 다시 씁니다.
+function _stDeleteRows_(sheet, rows, clearOnly) {
+  if (!rows.length) return 0;
+  const sorted = [...new Set(rows)].sort((a, b) => a - b);
+  const spans = [];
+  sorted.forEach(r => { const l = spans[spans.length - 1]; if (l && r === l.end + 1) l.end = r; else spans.push({ start: r, end: r }); });
+  const width = sheet.getLastColumn();
+  if (clearOnly) { spans.forEach(s => sheet.getRange(s.start, 1, s.end - s.start + 1, width).clearContent()); return sorted.length; }
+  if (spans.length <= 150) {
+    for (let i = spans.length - 1; i >= 0; i--) sheet.deleteRows(spans[i].start, spans[i].end - spans[i].start + 1);
+    return sorted.length;
+  }
+  const last = sheet.getLastRow();
+  const rng = sheet.getRange(2, 1, last - 1, width);
+  const drop = new Set(sorted);
+  const keep = rng.getValues().filter((r, i) => !drop.has(i + 2));
+  rng.clearContent();
+  if (keep.length) sheet.getRange(2, 1, keep.length, width).setValues(keep);
+  return sorted.length;
+}
+
+// 지우기 전 확인: 학생 기록이 얼마나 있는지
+function adminStudentDataSummary(auth, id) {
+  _requireManager_(auth);
+  id = String(id || '').trim();
+  const m = _stReadMembers_(_stMemberSheet_()).find(x => x.id === id && x.role !== 'manager');
+  if (!m) throw new Error('학생을 찾을 수 없습니다.');
+  const counts = { logs: 0, assignments: 0, results: 0, resultIndex: 0, points: 0, exchanges: 0, reads: 0, vocabLogs: 0, vocabWords: 0, notices: 0 };
+  _stDataPlaces_().forEach(p => { counts[p.kind] += _findRowNumbers_(p.sheet, p.col, id, true).length; });
+  _stVocabSheets_(id).forEach(sh => { counts.vocabWords += Math.max(0, sh.getLastRow() - 1); });
+  const nt = _stNoticeRows_(id);
+  counts.notices = nt.only.length + nt.shared.length;
+  let balance = 0;
+  try { balance = _pointState_().balances[id] || 0; } catch (e) {}
+  return { id: m.id, name: m.name, counts: counts, balance: balance };
+}
+
+// 학생 삭제. opts = { withData: true|false, confirmName: '이름' }
+function adminDeleteStudent(auth, id, opts) {
+  const me = _requireManager_(auth);
+  opts = opts || {};
+  id = String(id || '').trim();
+  const sh = _stMemberSheet_();
+  const m = _stReadMembers_(sh).find(x => x.id === id && x.role !== 'manager');
+  if (!m) throw new Error('학생을 찾을 수 없습니다.');
+  if (opts.withData && String(opts.confirmName || '').trim() !== m.name) throw new Error('확인용 이름이 학생 이름과 다릅니다.');
+  const done = {};
+  if (opts.withData) {
+    // 시트마다 잠금을 따로 잡아, 다른 학생의 답안 저장이 오래 기다리지 않게 합니다.
+    _stDataPlaces_().forEach(p => {
+      const n = _withLock_(() => _stDeleteRows_(p.sheet, _findRowNumbers_(p.sheet, p.col, id, true), !!p.clear), 30000);
+      done[p.kind] = (done[p.kind] || 0) + n;
+    });
+    _withLock_(() => {
+      const nt = _stNoticeRows_(id);
+      nt.shared.forEach(x => nt.sheet.getRange(x.row, 7).setValue(x.ids.filter(v => v !== id).join(',')));
+      done.notices = _stDeleteRows_(nt.sheet, nt.only, false) + nt.shared.length;
+    }, 30000);
+    const vs = _stVocabSheets_(id);
+    done.vocabWords = 0;
+    vs.forEach(v => { done.vocabWords += Math.max(0, v.getLastRow() - 1); v.getParent().deleteSheet(v); });
+    try { CacheService.getScriptCache().remove(_getVocabCacheKey({ id: id })); } catch (e) {}
+  }
+  _withLock_(() => {
+    const again = _stReadMembers_(sh).find(x => x.id === id && x.role !== 'manager');
+    if (again) sh.deleteRow(again.row);
+  }, 20000);
+  console.log('[학생 삭제] ' + me.id + ' → ' + id + '(' + m.name + ') 기록삭제=' + !!opts.withData + ' ' + JSON.stringify(done));
+  return { ok: true, withData: !!opts.withData, deleted: done };
 }

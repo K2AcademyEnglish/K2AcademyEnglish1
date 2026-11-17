@@ -29,7 +29,7 @@ function showPanel(id){
   // 1. 화면 패널들의 ID 명단
   const panels = [
     'startPage', 'studentMainPage', 'selectPage', 'quizPage', 'wrongPage', 'vocabPage', 
-    'assignmentPage', 'adminMakerPage', 'weeklyMakerPage', 'qbankPage'
+    'assignmentPage', 'adminMakerPage', 'weeklyMakerPage', 'qbankPage', 'studentsPage'
   ];
   
   // 2. 명단에 있는 모든 패널을 일단 숨깁니다.
@@ -129,6 +129,7 @@ function goStart(){
       if(typeof WRONG_SELECTED !== 'undefined') WRONG_SELECTED.clear();
       VOCAB_CACHE = null;
       MANAGED_STUDENTS = [];
+      if (window.STM) STM.reset();
       INVENTORY_DATA = [];
       ADMIN_HISTORY_CACHE = [];
       if(typeof MAKER_CART !== 'undefined') MAKER_CART.clear();
@@ -224,6 +225,12 @@ function routeTo(mode, isPopState = false){
     if(tab) tab.classList.add('active');
     showPanel('qbankPage');
     initQbankPage();
+  }
+  else if(mode === 'admin-students') {
+    const tab = document.getElementById('topTabAdminStudents');
+    if(tab) tab.classList.add('active');
+    showPanel('studentsPage');
+    if (window.STM) STM.open();
   }
 }
 
@@ -713,7 +720,7 @@ function prefetchAfterLogin(user) {
  * 문제 풀이·OMR 화면은 주소가 따로 없으므로 그 화면을 열었던 목록(예: 과제 목록)으로 돌아갑니다.
  */
 const STUDENT_PAGES = ['quiz', 'wrong', 'vocab', 'assignment'];
-const ADMIN_PAGES = ['admin-create', 'admin-history', 'weekly', 'admin-vocab', 'admin-qbank'];
+const ADMIN_PAGES = ['admin-create', 'admin-history', 'weekly', 'admin-vocab', 'admin-qbank', 'admin-students'];
 
 function restorePageFromHash(user) {
   const mode = decodeURIComponent((window.location.hash || '').replace(/^#/, ''));
