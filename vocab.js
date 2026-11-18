@@ -362,7 +362,6 @@ function drawerCheckDuplicateInput(el) {
                     r.meanings.map(m => `<button type="button" class="dw-chip" data-m="${esc(m)}">${escapeHTML(m)}</button>`).join('') + '</div>';
                 if (r.from) html += `<div class="dw-note">📌 원형 <b>${escapeHTML(r.word)}</b>의 뜻입니다. <button type="button" class="dw-link" data-w="${esc(r.word)}">${escapeHTML(r.word)}(으)로 바꾸기</button></div>`;
                 if (r.alt) html += `<div class="dw-note">📌 <b>${escapeHTML(r.word)}</b> 모양으로 자주 쓰입니다. <button type="button" class="dw-link" data-w="${esc(r.alt.word)}">원형 ${escapeHTML(r.alt.word)}(으)로 바꾸기</button></div>`;
-                if (r.src === 'web') html += '<div class="dw-note dw-web">학원 사전에 없어 인터넷 사전 결과입니다.</div>';
                 statusBox.style.color = '';
                 statusBox.innerHTML = html;
                 statusBox.onclick = e => {
@@ -822,7 +821,7 @@ function _wordPopShow(pop, r, o) {
   if (r.alt) notes.push(`📌 <b>${escapeHTML(r.word)}</b> 모양으로 자주 쓰여 이 뜻을 먼저 보여 줍니다. ${btn('alt', r.alt.word, '원형 ' + escapeHTML(r.alt.word) + ' 보기')}`);
   if (r.back) notes.push(btn('use', r.back, '← ' + escapeHTML(r.back) + '(으)로 돌아가기'));
   const head = dup ? `📘 이미 저장된 단어: <b>${escapeHTML(dup.meaning)}</b><br><span class="wp-sub">새 뜻을 고르면 추가됩니다.</span>`
-    : (r.meanings.length ? '<span class="wp-sub">추천 뜻을 눌러 고르십시오.' + (r.src === 'web' ? ' (학원 사전에 없어 인터넷 사전 결과)' : '') + '</span>'
+    : (r.meanings.length ? '<span class="wp-sub">추천 뜻을 눌러 고르십시오.</span>'
       : '<span class="wp-sub">추천 뜻이 없습니다. 직접 입력해 주십시오.</span>');
   status.innerHTML = head + (notes.length ? '<div class="wp-note">' + notes.join('<br>') + '</div>' : '');
   chips.innerHTML = r.meanings.map(m => `<button type="button" class="wp-chip" data-m="${escapeHTML(m).replace(/"/g, '&quot;')}">${escapeHTML(m)}</button>`).join('');
