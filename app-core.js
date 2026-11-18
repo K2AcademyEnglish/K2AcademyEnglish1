@@ -512,9 +512,19 @@ function initUI(){
     brand.setAttribute('role', 'button');
     brand.setAttribute('tabindex', '0');
     brand.title = '처음 화면으로';
-    brand.addEventListener('click', goHome);
     brand.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } });
   });
+  // 클릭은 문서 전체에서 가장 먼저(캡처 단계) 받습니다. → 어떤 화면의 다른 클릭 처리가 막아도, 머리글을 새로 그려도 동작
+  if (!window.__brandHomeBound) {
+    window.__brandHomeBound = true;
+    document.addEventListener('click', e => {
+      const brand = e.target && e.target.closest && e.target.closest('#brandHome, .brand');
+      if (!brand) return;
+      e.preventDefault();
+      e.stopPropagation();
+      goHome();
+    }, true);
+  }
 
   // 2. 상단 탭 연결
   on('topTabQuiz',  'click', ()=>routeTo('quiz'));
