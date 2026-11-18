@@ -75,7 +75,8 @@
 | `qbank.js` / `qbank.css` | 문제은행 편집기, 붙여넣기·PDF 분석기(모의고사·EBS·학교 시험지) |
 | `students.js` / `students.css` | 학생 관리 화면 |
 | `notice-points.js` / `.css` | 알림·포인트·교환권·관리자 비밀번호 창·속도 기록 |
-| `vocab.js` | 단어장(학생·관리자) |
+| `vocab.js` | 단어장(학생·관리자), 지문 단어 카드, 추천 뜻(학원 사전 + 원형 찾기) |
+| `dict-ko.json` | 학원 단어 사전(엑셀 변환본). `tools/make_dict.py`로 만듭니다. |
 | `tarot.js` | 오늘의 타로 (그림은 `img/tarot/00~21.jpg`) |
 | `ink.js` / `ink.css` | 펜 필기 |
 | `qrcode.js` | QR 코드 생성(외부 서비스 없이) |
@@ -128,7 +129,12 @@
   `<image:h3/26/ST/h3_26_ST_8-1>`처럼 경로를 직접 적을 수도 있습니다(확장자 생략 시 .jpg).
 - 어법·어휘·흐름·삽입·도표 유형은 ①~⑤를 **지문 안에** 넣고 선택지 칸은 비웁니다. 삽입은 `( ① )` 모양.
 
-### 4-3. 단어장 (`VOCAB_SHEET_ID`)
+### 4-3. 학원 단어 사전 (`dict-ko.json`)
+- 단어장의 **추천 뜻**은 학원에서 정리한 단어·숙어 엑셀(시트 `단어 통합`, `숙어 통합`: 첫 열 영어, 다음 열부터 뜻)을 변환한 `dict-ko.json`을 먼저 씁니다. 사전에 없을 때만 서버의 인터넷 사전(네이버 → 구글 번역)을 씁니다.
+- 지문에서 고른 단어가 변형이면 **원형**으로 찾습니다(studied → study, gave up → give up, went → go). 사전에 그 모양 그대로 올라 있는 단어(interesting, advanced 같은 분사형 형용사)는 그 모양을 먼저 보여 주고 [원형 보기] 버튼을 줍니다.
+- **엑셀을 고친 뒤 사전 갱신:** `python tools/make_dict.py 단어엑셀.xlsx dict-ko.json` → `vocab.js` 맨 위쪽 `VOCAB_DICT_URL`의 `?v=` 숫자를 올리고 둘 다 올립니다. (Python과 `openpyxl` 필요)
+
+### 4-4. 단어장 (`VOCAB_SHEET_ID`)
 - 학생마다 `ID(이름)` 시트 하나. 이름을 바꿔도 `ID(`로 시작하는 시트를 찾아 이어 씁니다.
 - `오타정정`, `기록`(학습 기록) 시트.
 

@@ -353,35 +353,33 @@ function drawerCheckDuplicateInput(el) {
             statusBox.style.color = '#d97706';
         } else {
             statusBox.innerHTML = '<span style="color:#6b7280;">추천 뜻을 불러오는 중...</span>';
-            if (hasGsRun()) {
-                google.script.run
-                    .withSuccessHandler(function(translated) {
-                        if (translated && document.getElementById('drawerWord').value.trim().toLowerCase() === rawQuery) {
-                            const meanings = translated.split(',').map(s => s.trim()).filter(Boolean);
-                            let html = '<div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center;">' + 
-                                       '<span style="color:#2b6cb0; font-weight:bold; margin-right:4px;">추천: </span>';
-                            
-                            meanings.forEach(m => {
-                                const safeM = m.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                                html += `<button type="button" style="padding:4px 8px; font-size:12px; background:#eff6ff; color:#2b6cb0; border:1px solid #2b6cb0; border-radius:6px; cursor:pointer;" ` +
-                                        `onclick="const inp = document.getElementById('drawerMeaning'); let val = inp.value.trim(); ` +
-                                        `if(val) { if(!val.includes('${safeM}')) inp.value = val + ', ' + '${safeM}'; } else { inp.value = '${safeM}'; } ` +
-                                        `this.style.background='#dbeafe';">` +
-                                        escapeHTML(m) + `</button>`;
-                            });
-                            html += '</div>';
-                            statusBox.innerHTML = html;
-                        } else {
-                            statusBox.innerText = '';
-                        }
-                    })
-                    .withFailureHandler(function(err) {
-                        statusBox.innerText = '';
-                    })
-                    .getWordTranslation(query);
-            } else {
-                statusBox.innerText = '';
-            }
+            // 학원 사전 → 없으면 인터넷 사전. 변형이면 원형 뜻과 [원형으로 바꾸기] 버튼
+            vocabSuggest(query).then(r => {
+                if (document.getElementById('drawerWord').value.trim().toLowerCase() !== rawQuery) return;
+                if (!r || !r.meanings.length) { statusBox.innerText = ''; return; }
+                const esc = v => escapeHTML(v).replace(/"/g, '&quot;');
+                let html = '<div class="dw-suggest"><span class="dw-suggest-label">추천: </span>' +
+                    r.meanings.map(m => `<button type="button" class="dw-chip" data-m="${esc(m)}">${escapeHTML(m)}</button>`).join('') + '</div>';
+                if (r.from) html += `<div class="dw-note">📌 원형 <b>${escapeHTML(r.word)}</b>의 뜻입니다. <button type="button" class="dw-link" data-w="${esc(r.word)}">${escapeHTML(r.word)}(으)로 바꾸기</button></div>`;
+                if (r.alt) html += `<div class="dw-note">📌 <b>${escapeHTML(r.word)}</b> 모양으로 자주 쓰입니다. <button type="button" class="dw-link" data-w="${esc(r.alt.word)}">원형 ${escapeHTML(r.alt.word)}(으)로 바꾸기</button></div>`;
+                if (r.src === 'web') html += '<div class="dw-note dw-web">학원 사전에 없어 인터넷 사전 결과입니다.</div>';
+                statusBox.style.color = '';
+                statusBox.innerHTML = html;
+                statusBox.onclick = e => {
+                    const chip = e.target.closest('.dw-chip'), link = e.target.closest('.dw-link');
+                    if (chip) {
+                        const inp = document.getElementById('drawerMeaning');
+                        const parts = inp.value.split(',').map(x => x.trim()).filter(Boolean);
+                        if (parts.indexOf(chip.dataset.m) < 0) parts.push(chip.dataset.m);
+                        inp.value = parts.join(', ');
+                        chip.classList.add('on');
+                    } else if (link) {
+                        const wEl = document.getElementById('drawerWord');
+                        wEl.value = link.dataset.w;
+                        drawerCheckDuplicateInput(wEl);
+                    }
+                };
+            });
         }
     }, 300);
 }
@@ -646,6 +644,93 @@ const WORD_PICK_RE = /^[A-Za-z][A-Za-z'\-]*(?: [A-Za-z][A-Za-z'\-]*){0,3}$/;
 let _wordPickTimer = null;
 let _wordPopRange = null;
 
+/* ===================== 학원 단어 사전 (dict-ko.json) =====================
+ * 학원에서 정리한 단어·숙어 엑셀을 변환한 사전입니다(tools/make_dict.py). 추천 뜻은 이 사전을 먼저 쓰고,
+ * 사전에 없을 때만 서버(네이버·구글 번역)로 찾습니다.
+ * 지문에서 고른 단어가 변형이면 원형으로 찾습니다(went → go, studies → study, running → run).
+ * 단, 사전에 그 모양 그대로 올라 있는 단어(분사형 형용사 abandoned, interested 등)는 그 모양을 먼저 보여 줍니다.
+ */
+const VOCAB_DICT_URL = 'dict-ko.json?v=20261118a';
+let _vocabDictP = null;
+function vocabDictLoad() {
+  if (!_vocabDictP) {
+    _vocabDictP = fetch(VOCAB_DICT_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(o => new Map(Object.entries(o)))
+      .catch(() => { _vocabDictP = null; return new Map(); });
+  }
+  return _vocabDictP;
+}
+// 불규칙 동사: 원형 과거 과거분사 (과거분사가 같으면 생략)
+const VOCAB_IRREGULAR = ('arise arose arisen|awake awoke awoken|be was been|be were|bear bore born|bear bore borne|beat beat beaten|become became become|begin began begun|' +
+  'bend bent|bet bet|bind bound|bite bit bitten|bleed bled|blow blew blown|break broke broken|breed bred|bring brought|broadcast broadcast|build built|burn burnt|' +
+  'burst burst|buy bought|cast cast|catch caught|choose chose chosen|cling clung|come came come|cost cost|creep crept|cut cut|deal dealt|dig dug|do did done|do does|' +
+  'draw drew drawn|dream dreamt|drink drank drunk|drive drove driven|dwell dwelt|eat ate eaten|fall fell fallen|feed fed|feel felt|fight fought|find found|flee fled|' +
+  'fling flung|fly flew flown|forbid forbade forbidden|forecast forecast|foresee foresaw foreseen|forget forgot forgotten|forgive forgave forgiven|freeze froze frozen|' +
+  'get got gotten|give gave given|go went gone|go goes|grind ground|grow grew grown|hang hung|have had|have has|hear heard|hide hid hidden|hit hit|hold held|hurt hurt|' +
+  'keep kept|kneel knelt|know knew known|lay laid|lead led|lean leant|leap leapt|learn learnt|leave left|lend lent|let let|lie lay lain|light lit|lose lost|make made|' +
+  'mean meant|meet met|mislead misled|mistake mistook mistaken|misunderstand misunderstood|overcome overcame overcome|overtake overtook overtaken|overthrow overthrew overthrown|' +
+  'pay paid|prove proved proven|put put|quit quit|read read|rid rid|ride rode ridden|ring rang rung|rise rose risen|run ran run|say said|see saw seen|seek sought|' +
+  'sell sold|send sent|set set|sew sewed sewn|shake shook shaken|shed shed|shine shone|shoot shot|show showed shown|shrink shrank shrunk|shut shut|sing sang sung|' +
+  'sink sank sunk|sit sat|sleep slept|slide slid|sling slung|slit slit|smell smelt|sow sowed sown|speak spoke spoken|speed sped|spell spelt|spend spent|spill spilt|' +
+  'spin spun|spit spat|split split|spoil spoilt|spread spread|spring sprang sprung|stand stood|steal stole stolen|stick stuck|sting stung|stink stank stunk|stride strode stridden|' +
+  'strike struck|string strung|strive strove striven|swear swore sworn|sweep swept|swell swelled swollen|swim swam swum|swing swung|take took taken|teach taught|' +
+  'tear tore torn|tell told|think thought|throw threw thrown|thrust thrust|tread trod trodden|undergo underwent undergone|understand understood|undertake undertook undertaken|' +
+  'undo undid undone|uphold upheld|upset upset|wake woke woken|wear wore worn|weave wove woven|weep wept|win won|wind wound|withdraw withdrew withdrawn|' +
+  'withhold withheld|withstand withstood|wring wrung|write wrote written|' +
+  // 불규칙 복수·비교
+  'child children|man men|woman women|foot feet|tooth teeth|mouse mice|goose geese|person people|ox oxen|crisis crises|analysis analyses|basis bases|hypothesis hypotheses|' +
+  'thesis theses|phenomenon phenomena|criterion criteria|medium media|datum data|bacterium bacteria|curriculum curricula|stimulus stimuli|nucleus nuclei|fungus fungi|' +
+  'good better best|well better best|bad worse worst|many more most|much more most|little less least|far farther farthest|far further furthest')
+  .split('|').reduce((m, line) => { const [b, ...fs] = line.trim().split(/\s+/); fs.forEach(f => { if (f !== b && !m[f]) m[f] = b; }); return m; }, {});
+// 고른 모양에서 나올 수 있는 원형 후보 (사전에 있는 것만 씁니다)
+function vocabLemmaCandidates(w) {
+  const out = [];
+  const add = x => { if (x && x !== w && x.length > 1 && out.indexOf(x) < 0) out.push(x); };
+  if (VOCAB_IRREGULAR[w]) add(VOCAB_IRREGULAR[w]);
+  const dbl = (stem) => (stem.length > 2 && stem[stem.length - 1] === stem[stem.length - 2] && !/[aeiouwxy]/.test(stem[stem.length - 1])) ? stem.slice(0, -1) : null;
+  let m;
+  if ((m = w.match(/^(.+)ies$/))) add(m[1] + 'y');
+  if ((m = w.match(/^(.+)ves$/))) { add(m[1] + 'f'); add(m[1] + 'fe'); }
+  if ((m = w.match(/^(.+(?:s|x|z|ch|sh|o))es$/))) add(m[1]);
+  if ((m = w.match(/^(.+[^s])s$/))) add(m[1]);
+  if ((m = w.match(/^(.+)ied$/))) add(m[1] + 'y');
+  if ((m = w.match(/^(.+)ed$/))) { add(dbl(m[1])); add(m[1] + 'e'); add(m[1]); }
+  if ((m = w.match(/^(.+)ying$/))) add(m[1] + 'ie');
+  if ((m = w.match(/^(.+)ing$/))) { add(dbl(m[1])); add(m[1] + 'e'); add(m[1]); }
+  if ((m = w.match(/^(.+)i(er|est)$/))) add(m[1] + 'y');
+  if ((m = w.match(/^(.+?)(er|est)$/))) { add(dbl(m[1])); add(m[1] + 'e'); add(m[1]); }
+  if ((m = w.match(/^(.+)ily$/))) add(m[1] + 'y');
+  if ((m = w.match(/^(.+)ly$/))) { add(m[1]); add(m[1] + 'le'); }
+  return out;
+}
+// → { word, meanings, from?, alt?: {word, meanings} } 또는 null(사전에 없음)
+async function vocabDictSuggest(raw) {
+  const D = await vocabDictLoad();
+  const w = String(raw || '').replace(/[’‘]/g, "'").toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!w || !D.size) return null;
+  const words = w.split(' ');
+  // 숙어: 첫 낱말만 원형으로 바꿔 찾습니다(gave up → give up)
+  const forms = words.length > 1 ? vocabLemmaCandidates(words[0]).map(b => [b].concat(words.slice(1)).join(' ')) : vocabLemmaCandidates(w);
+  const base = forms.find(b => D.has(b));
+  if (D.has(w)) {
+    // 사전에 그 모양 그대로 있음(분사형 형용사 등) → 그대로 보여 주고 원형은 따로 고를 수 있게
+    return base ? { word: w, meanings: D.get(w), alt: { word: base, meanings: D.get(base) } } : { word: w, meanings: D.get(w) };
+  }
+  if (base) return { word: base, meanings: D.get(base), from: w };
+  return null;
+}
+// 화면에서 쓰는 추천: 학원 사전 → 없으면 서버(네이버·구글)
+async function vocabSuggest(raw) {
+  const r = await vocabDictSuggest(raw);
+  if (r) return Object.assign({ src: 'dict' }, r);
+  const w = String(raw || '').toLowerCase().trim();
+  // 학원 사전에 없는 불규칙 변형(went, felt …)은 원형으로 인터넷 사전을 찾습니다.
+  const irr = VOCAB_IRREGULAR[w];
+  if (irr) return { word: irr, meanings: await fetchMeaningSuggestions(irr), src: 'web', from: w };
+  const list = await fetchMeaningSuggestions(w);
+  return { word: w, meanings: list, src: 'web' };
+}
+
 function fetchMeaningSuggestions(word) {
   const key = word.toLowerCase();
   if (MEANING_SUGGEST_CACHE.has(key)) return MEANING_SUGGEST_CACHE.get(key);
@@ -688,6 +773,7 @@ function _ensureWordPopover() {
     clearTimeout(editTimer);
     editTimer = setTimeout(() => _fillWordPopover(e.target.value.trim()), 400);
   });
+  pop.querySelector('.wp-status').addEventListener('click', _wordPopNoteClick);
   pop.querySelector('.wp-chips').addEventListener('click', e => {
     const chip = e.target.closest('.wp-chip');
     if (!chip) return;
@@ -702,23 +788,65 @@ function _ensureWordPopover() {
   return pop;
 }
 
-function _fillWordPopover(word) {
+// 단어 카드 채우기. opts.auto: 지문에서 고른 단어(변형이면 단어 칸을 원형으로 바꿈) / 직접 입력이면 칸은 그대로 두고 원형 버튼만
+function _fillWordPopover(word, opts) {
+  opts = opts || {};
   const pop = _ensureWordPopover();
   const status = pop.querySelector('.wp-status');
   const chips = pop.querySelector('.wp-chips');
+  const wordEl = pop.querySelector('.wp-word');
   pop.querySelector('.wp-meaning').value = '';
   chips.innerHTML = '';
+  const seq = pop._seq = (pop._seq || 0) + 1;
   if (!word) { status.innerHTML = '<span class="wp-sub">영어 단어를 입력하면 추천 뜻이 나옵니다.</span>'; return; }
-  const lower = String(vocabCorrectTypo(word) || word).toLowerCase();
-  const dup = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === lower) : null;
-  status.innerHTML = dup
-    ? `📘 이미 저장된 단어: <b>${escapeHTML(dup.meaning)}</b><br><span class="wp-sub">새 뜻을 고르면 추가됩니다.</span>`
-    : '<span class="wp-sub">추천 뜻을 불러오는 중...</span>';
-  fetchMeaningSuggestions(lower).then(list => {
-    if (pop.querySelector('.wp-word').value.trim().toLowerCase() !== word.toLowerCase()) return; // 그 사이 단어 변경
-    if (!dup) status.innerHTML = list.length ? '<span class="wp-sub">추천 뜻을 눌러 고르십시오.</span>' : '<span class="wp-sub">추천 뜻이 없습니다. 직접 입력해 주십시오.</span>';
-    chips.innerHTML = list.map(m => `<button type="button" class="wp-chip" data-m="${escapeHTML(m).replace(/"/g, '&quot;')}">${escapeHTML(m)}</button>`).join('');
+  const typed = String(vocabCorrectTypo(word) || word);
+  status.innerHTML = '<span class="wp-sub">추천 뜻을 불러오는 중...</span>';
+  const p = opts.exact ? fetchMeaningSuggestions(typed.toLowerCase()).then(list => ({ word: typed.toLowerCase(), meanings: list, src: 'web' })) : vocabSuggest(typed);
+  p.then(r => {
+    if (seq !== pop._seq) return;   // 그 사이 다른 단어
+    r = r || { word: typed.toLowerCase(), meanings: [] };
+    if (opts.auto && r.word !== wordEl.value.trim().toLowerCase()) wordEl.value = r.word;
+    _wordPopShow(pop, r, Object.assign({}, opts, { typed: typed.toLowerCase() }));
   });
+}
+// 추천 결과를 카드에 그립니다(원형/분사형 안내와 바꾸기 버튼 포함).
+function _wordPopShow(pop, r, o) {
+  const status = pop.querySelector('.wp-status');
+  const chips = pop.querySelector('.wp-chips');
+  const shown = pop.querySelector('.wp-word').value.trim().toLowerCase();
+  const dup = Array.isArray(VOCAB_CACHE) ? VOCAB_CACHE.find(x => String(x.word || '').toLowerCase() === shown) : null;
+  const notes = [];
+  const btn = (act, w, label) => `<button type="button" class="wp-link" data-act="${act}" data-w="${escapeHTML(w).replace(/"/g, '&quot;')}">${label}</button>`;
+  if (r.from && o.auto) notes.push(`📌 <b>${escapeHTML(r.from)}</b>의 원형 <b>${escapeHTML(r.word)}</b>의 뜻입니다. ${btn('exact', r.from, escapeHTML(r.from) + ' 그대로 저장')}`);
+  else if (r.from) notes.push(`📌 원형 <b>${escapeHTML(r.word)}</b>의 뜻입니다. ${btn('use', r.word, escapeHTML(r.word) + '(으)로 바꾸기')}`);
+  if (r.alt) notes.push(`📌 <b>${escapeHTML(r.word)}</b> 모양으로 자주 쓰여 이 뜻을 먼저 보여 줍니다. ${btn('alt', r.alt.word, '원형 ' + escapeHTML(r.alt.word) + ' 보기')}`);
+  if (r.back) notes.push(btn('use', r.back, '← ' + escapeHTML(r.back) + '(으)로 돌아가기'));
+  const head = dup ? `📘 이미 저장된 단어: <b>${escapeHTML(dup.meaning)}</b><br><span class="wp-sub">새 뜻을 고르면 추가됩니다.</span>`
+    : (r.meanings.length ? '<span class="wp-sub">추천 뜻을 눌러 고르십시오.' + (r.src === 'web' ? ' (학원 사전에 없어 인터넷 사전 결과)' : '') + '</span>'
+      : '<span class="wp-sub">추천 뜻이 없습니다. 직접 입력해 주십시오.</span>');
+  status.innerHTML = head + (notes.length ? '<div class="wp-note">' + notes.join('<br>') + '</div>' : '');
+  chips.innerHTML = r.meanings.map(m => `<button type="button" class="wp-chip" data-m="${escapeHTML(m).replace(/"/g, '&quot;')}">${escapeHTML(m)}</button>`).join('');
+  pop._last = r;
+  _positionWordPopover();
+}
+// 안내 줄의 버튼: 원형/그대로/분사형 사이를 바꿉니다.
+function _wordPopNoteClick(e) {
+  const b = e.target.closest && e.target.closest('.wp-link');
+  if (!b) return;
+  const pop = _ensureWordPopover();
+  const w = b.dataset.w, act = b.dataset.act, last = pop._last || {};
+  const wordEl = pop.querySelector('.wp-word');
+  pop.querySelector('.wp-meaning').value = '';
+  if (act === 'alt' && last.alt) {
+    wordEl.value = last.alt.word;
+    _wordPopShow(pop, { word: last.alt.word, meanings: last.alt.meanings, src: 'dict', back: last.word }, {});
+  } else if (act === 'exact') {
+    wordEl.value = w;
+    _fillWordPopover(w, { exact: true });
+  } else {
+    wordEl.value = w;
+    _fillWordPopover(w, {});
+  }
 }
 
 function _positionWordPopover() {
@@ -753,7 +881,7 @@ function showWordPopover(word, anchor) {
   _wordPopRange = anchor ? (anchor.cloneRange ? anchor.cloneRange() : anchor) : null;
   pop.querySelector('.wp-word').value = word || '';
   pop.style.display = 'block';
-  _fillWordPopover(word || '');
+  _fillWordPopover(word || '', { auto: true });
   _positionWordPopover();
   vocabInitTypoOnce();
   drawerEnsureLoaded();
