@@ -61,6 +61,7 @@ function renderQuestions(qs){
   CURRENT_QUIZ_DATA = qs;
   showPanel('quizPage');
   setTopTab('quiz');
+  if (window.OMRL) OMRL.off();
 
   // OMR 버튼이 남아 있다면 숨기고, 이전/다음 버튼 복구
   const omrBtn = document.getElementById('btnSubmitOMR');
@@ -1881,6 +1882,8 @@ function renderOMRSheet(qs, history, isReviewMode, assignmentId) {
   
   // 7. 하단 고정 버튼 바 업데이트
   updateOMRFooterButtons(isReviewMode, isRetry, realWrongCount, assignmentId, qs);
+  // 8. 번호 리스트 + 하단 답안 패널 (카드·입력칸은 그대로 두고 그 위에 얹습니다)
+  if (window.OMRL) OMRL.init(omrContainer, { review: !!isReviewMode, retry: !!isRetry });
 
   // OMR 화면(과제 풀이) 진입 시 상단 단어장 버튼 노출
   const btnVocab = document.getElementById('btnOpenVocab');
@@ -2064,6 +2067,7 @@ function enterInstantRetryMode(assignmentId, qs) {
 
     // 3. 하단 버튼을 "수정된 답안 제출" 상태로 즉시 변경
     updateOMRFooterButtons(false, true, 0, assignmentId, qs);
+    if (window.OMRL && OMRL.active()) { OMRL.afterGrade(currentWrong, currentBlank); return; }
     
     // 4. 스크롤 이동 제어
     // - 미입력(빈칸)과 맞은 문제(고쳐서 맞은 문제 포함)를 모두 제외하고, 가장 번호가 낮은 '틀린 문제' 1개를 탐색
@@ -2645,4 +2649,280 @@ function spPlaySelected() {
   });
   const play = document.getElementById('spPlay');
   if (play) play.addEventListener('click', spPlaySelected);
+})();
+
+
+/* ===================== OMR 번호 리스트 + 하단 답안 패널 =====================
+ * 문항마다 큰 카드 대신 한 줄(번호 · 유형 · 고른 답)로 보여 주고, 번호를 누르면
+ * 화면 아래 패널에 ①~⑤ 버튼(서술형은 입력칸)이 뜹니다.
+ * - 채점·저장·다시 풀기는 기존 카드의 입력칸을 그대로 씁니다. 이 패널은 그 입력칸을 대신 눌러 주고,
+ *   카드 상태(정답·오답·잠김)를 읽어 줄과 패널에 보여 줄 뿐입니다.
+ * - 카드의 [온라인] 보기·[해설]도 패널 버튼이 카드의 버튼을 대신 누릅니다(카드가 한 줄 전체로 펼쳐짐).
+ */
+window.OMRL = (function () {
+  const CIRC = ['①', '②', '③', '④', '⑤'];
+  const S = { box: null, cur: -1, review: false, mo: null, ro: null, raf: 0, auto: true };
+  try { S.auto = localStorage.getItem('omrAutoNext') !== '0'; } catch (e) {}
+  const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const cards = () => S.box ? Array.from(S.box.querySelectorAll(':scope > .omr-card[data-idx]')) : [];
+  const card = i => S.box ? S.box.querySelector(`:scope > .omr-card[data-idx="${i}"]`) : null;
+
+  // 카드 하나의 지금 상태를 읽습니다.
+  function info(c) {
+    const idx = Number(c.getAttribute('data-idx'));
+    const q = (typeof CURRENT_QUIZ_DATA !== 'undefined' && CURRENT_QUIZ_DATA[idx]) || {};
+    const radios = Array.from(c.querySelectorAll(`.omr-options-wrap input[name="omr_${idx}"]`));
+    const descs = Array.from(c.querySelectorAll('.desc-input-group .desc-input'));
+    const isDesc = descs.length > 0;
+    const checked = radios.find(r => r.checked);
+    const vals = descs.map(d => d.value);
+    const answered = isDesc ? vals.some(v => String(v).trim() !== '') : !!checked;
+    const inputs = isDesc ? descs : radios;
+    const locked = inputs.length > 0 && inputs.every(x => x.disabled);
+    const t = c.querySelector('.question-title');
+    let st = '';
+    if (t && t.classList.contains('correct')) st = 'ok';
+    else if (t && t.classList.contains('corrected')) st = 'fix';
+    else if ((t && t.classList.contains('wrong')) || c.getAttribute('data-currently-wrong') === 'true') st = 'bad';
+    if (c.getAttribute('data-already-correct') === 'true' && !st) st = 'ok';
+    // 서술형은 쓴 글 대신 '입력'만 보여 줍니다(긴 답이 줄을 넓히지 않도록).
+    const ans = !answered ? '' : isDesc ? '입력' : CIRC[Number(checked.value) - 1] || checked.value;
+    return { idx, q, isDesc, radios, descs, checked, answered, locked, st, ans, no: idx + 1, type: String(q.type || '') };
+  }
+
+  /* ---------- 줄 ---------- */
+  function addRows() {
+    cards().forEach(c => {
+      if (c.querySelector(':scope > .omr-row')) return;
+      const row = document.createElement('div');
+      row.className = 'omr-row';
+      row.innerHTML = '<span class="ol-no"></span><span class="ol-ty"></span><span class="ol-ans"></span><span class="ol-lock"></span>';
+      c.insertBefore(row, c.firstChild);
+      row.addEventListener('click', () => select(Number(c.getAttribute('data-idx')), true));
+    });
+  }
+  function paintRows() {
+    cards().forEach(c => {
+      const f = info(c), row = c.querySelector(':scope > .omr-row');
+      if (!row) return;
+      row.querySelector('.ol-no').textContent = f.no;
+      row.querySelector('.ol-ty').textContent = f.type;
+      const a = row.querySelector('.ol-ans');
+      a.textContent = f.ans || (f.isDesc ? '미입력' : '–');
+      a.classList.toggle('is-text', f.isDesc);
+      row.querySelector('.ol-lock').textContent = f.locked && (f.st === 'ok' || f.st === 'fix') ? '✓' : '';
+      c.classList.toggle('ol-answered', f.answered);
+      c.classList.toggle('ol-cur', f.idx === S.cur);
+      c.classList.toggle('ol-ok', f.locked && f.st === 'ok');
+      c.classList.toggle('ol-fix', f.locked && f.st === 'fix');
+      c.classList.toggle('ol-bad', f.st === 'bad');
+      c.classList.toggle('ol-locked', f.locked);
+      const exp = c.querySelector('.explanation-box');
+      c.classList.toggle('exp-open', !!(exp && exp.style.display === 'block'));
+    });
+  }
+
+  /* ---------- 하단 패널 ---------- */
+  function dock() {
+    let d = document.getElementById('omrDock');
+    const footer = document.getElementById('globalFooter');
+    if (!footer) return null;
+    if (!d) {
+      d = document.createElement('div');
+      d.id = 'omrDock';
+      d.addEventListener('click', onDockClick);
+      d.addEventListener('input', onDockInput);
+      d.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.od-desc input')) { e.preventDefault(); next(true); } });
+    }
+    if (d.parentNode !== footer || footer.firstChild !== d) footer.insertBefore(d, footer.firstChild);
+    return d;
+  }
+  function paintDock(focus) {
+    const d = dock();
+    if (!d) return;
+    const c = card(S.cur);
+    if (!c) { d.innerHTML = `<div class="od-empty">${S.review ? '위 번호를 누르면 고른 답과 해설을 볼 수 있습니다.' : '위 번호를 누르면 여기에서 답을 고를 수 있습니다.'}</div>`; fitBody(); return; }
+    const f = info(c);
+    const btnOnline = Array.from(c.querySelectorAll('.q-header-flex .btn-exp')).find(b => !b.hasAttribute('data-exp-btn'));
+    const btnExp = c.querySelector('button[data-exp-btn]');
+    const showOnline = btnOnline && btnOnline.style.display !== 'none';
+    const showExp = btnExp && btnExp.style.display !== 'none';
+    const onlineOpen = c.classList.contains('online-open');
+    const expOpen = c.classList.contains('exp-open');
+    const stTxt = f.st === 'ok' ? '<span class="od-st ok">정답 ✓</span>' : f.st === 'fix' ? '<span class="od-st fix">정답 ▲</span>'
+      : (f.st === 'bad' && f.locked) ? '<span class="od-st bad">오답 ✖</span>' : (f.st === 'bad' ? '<span class="od-st bad">다시 풀기</span>' : '');
+    let body;
+    if (f.isDesc) {
+      body = '<div class="od-desc">' + f.descs.map((inp, k) => {
+        const lab = f.descs.length > 1 ? (['(A)', '(B)', '(C)', '(D)', '(E)'][k] || `(${k + 1})`) : '답';
+        const st = inp.disabled ? ` style="background:${inp.style.backgroundColor || '#f3f4f6'};color:${inp.style.color || ''};border-color:${inp.style.borderColor || '#d1d5db'}"` : '';
+        return `<label><span>${lab}</span><input type="text" data-k="${k}" value="${esc(inp.value)}"${inp.disabled ? ' disabled' : ''}${st} autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${inp.disabled ? '' : '영어로 입력'}"></label>`;
+      }).join('') + (f.locked ? '' : '<button type="button" class="od-done" data-od="next">입력 완료 → 다음</button>') + '</div>';
+    } else {
+      const labels = Array.from(c.querySelectorAll('.omr-opt-label'));
+      body = '<div class="od-opts">' + f.radios.map((r, k) => {
+        const lb = labels[k];
+        const cls = ['od-opt'];
+        if (r.checked && !f.locked) cls.push('active');
+        if (lb) ['correct', 'wrong', 'corrected', 'dimmed'].forEach(x => { if (lb.classList.contains(x)) cls.push(x); });
+        return `<button type="button" class="${cls.join(' ')}" data-opt="${esc(r.value)}"${r.disabled ? ' disabled' : ''}>${CIRC[k] || r.value}</button>`;
+      }).join('') + '</div>';
+    }
+    const total = cards().length;
+    d.innerHTML = `<div class="od-head">
+        <button type="button" class="od-nav" data-od="prev" aria-label="이전 문항">◀</button>
+        <span class="od-no">${f.no}번</span><span class="od-ty">${esc(f.type)}</span>${stTxt}
+        <span class="od-sp"></span>
+        ${showOnline ? `<button type="button" class="od-mini od-online" data-od="online">${onlineOpen ? '온라인 닫기' : '온라인'}</button>` : ''}
+        ${showExp ? `<button type="button" class="od-mini od-exp" data-od="exp">${expOpen ? '해설 닫기' : '해설'}</button>` : ''}
+        <button type="button" class="od-nav" data-od="next1" aria-label="다음 문항">▶</button>
+      </div>${body}
+      ${S.review ? '' : `<label class="od-auto"><input type="checkbox" data-od="auto"${S.auto ? ' checked' : ''}> 답을 고르면 다음 미입력 문항으로</label>`}
+      <div class="od-count">${countText(total)}</div>`;
+    if (focus && f.isDesc && !f.locked) {
+      const first = Array.from(d.querySelectorAll('.od-desc input')).find(x => !x.value) || d.querySelector('.od-desc input');
+      if (first) setTimeout(() => { try { first.focus({ preventScroll: true }); } catch (e) { first.focus(); } }, 30);
+    }
+    fitBody();
+  }
+  function countText(total) {
+    const all = cards().map(info);
+    const done = all.filter(f => f.answered).length;
+    const left = all.filter(f => !f.answered && !f.locked).length;
+    return `${done}/${total} 입력` + (left ? ` · <b>미입력 ${left}개</b>` : '');
+  }
+  // 아래 패널이 가리는 만큼 화면 아래 여백을 늘립니다.
+  function fitBody() {
+    const footer = document.getElementById('globalFooter');
+    if (!footer || !document.body.classList.contains('omr-dock-on')) return;
+    // 휴대폰 CSS가 body 아래 여백을 !important로 정해 두어서 같은 우선순위로 덮어씁니다.
+    document.body.style.setProperty('padding-bottom', (footer.offsetHeight + 16) + 'px', 'important');
+  }
+
+  /* ---------- 동작 ---------- */
+  function select(i, fromRow) {
+    if (!card(i)) return;
+    S.cur = i;
+    paintRows();
+    paintDock(true);
+    const c = card(i);
+    if (c) {
+      const r = c.getBoundingClientRect(), footer = document.getElementById('globalFooter');
+      const bottom = window.innerHeight - (footer ? footer.offsetHeight : 0);
+      if (r.top < 70 || r.bottom > bottom - 8) {
+        const y = window.scrollY + r.top - Math.max(80, (bottom - r.height) / 2);
+        window.scrollTo({ top: Math.max(0, y), behavior: fromRow ? 'auto' : 'smooth' });
+      }
+    }
+  }
+  function next(onlyTodo) {
+    const all = cards().map(info);
+    const n = all.length;
+    for (let k = 1; k <= n; k++) {
+      const f = all.find(x => x.idx === (S.cur + k) % n);
+      if (!f) continue;
+      if (!onlyTodo || (!f.answered && !f.locked)) { select(f.idx); return true; }
+    }
+    return false;
+  }
+  function onDockClick(e) {
+    const c = card(S.cur);
+    if (!c) return;
+    const opt = e.target.closest('[data-opt]');
+    const act = e.target.closest('[data-od]');
+    if (opt && !opt.disabled) {
+      const r = c.querySelector(`.omr-options-wrap input[name="omr_${S.cur}"][value="${opt.dataset.opt}"]`);
+      if (!r || r.disabled) return;
+      r.click();                        // 기존 OMR 클릭 처리(선택/다시 누르면 해제·온라인 시험지 표시)를 그대로 씀
+      const picked = r.checked;
+      paintRows(); paintDock(false);
+      if (picked && S.auto) setTimeout(() => { if (card(S.cur) === c) next(true); }, 160);
+      return;
+    }
+    if (!act) return;
+    const a = act.dataset.od;
+    if (a === 'prev') select((S.cur - 1 + cards().length) % cards().length);
+    else if (a === 'next1') select((S.cur + 1) % cards().length);
+    else if (a === 'next') { if (!next(true)) next(false); }
+    else if (a === 'online') {
+      const b = Array.from(c.querySelectorAll('.q-header-flex .btn-exp')).find(x => !x.hasAttribute('data-exp-btn'));
+      if (b) { b.click(); setTimeout(() => paintDock(false), 60); }
+    } else if (a === 'exp') {
+      const b = c.querySelector('button[data-exp-btn]');
+      if (b) { b.click(); setTimeout(() => { paintRows(); paintDock(false); }, 60); }
+    }
+  }
+  function onDockInput(e) {
+    const t = e.target;
+    if (t.dataset && t.dataset.od === 'auto') { S.auto = t.checked; try { localStorage.setItem('omrAutoNext', t.checked ? '1' : '0'); } catch (err) {} return; }
+    if (t.matches('.od-desc input')) {
+      const c = card(S.cur);
+      const inp = c && c.querySelectorAll('.desc-input-group .desc-input')[Number(t.dataset.k)];
+      if (inp && !inp.disabled) { inp.value = t.value; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+      paintRows();
+      const cnt = document.querySelector('#omrDock .od-count');
+      if (cnt) cnt.innerHTML = countText(cards().length);
+    }
+  }
+  function onKey(e) {
+    if (!active() || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '')) return;
+    const d = document.getElementById('omrDock');
+    if (/^[1-5]$/.test(e.key) && d) { const b = d.querySelector(`[data-opt="${e.key}"]`); if (b && !b.disabled) { e.preventDefault(); b.click(); } }
+    else if (e.key === 'ArrowRight' && S.cur >= 0) { e.preventDefault(); select((S.cur + 1) % cards().length); }
+    else if (e.key === 'ArrowLeft' && S.cur >= 0) { e.preventDefault(); select((S.cur - 1 + cards().length) % cards().length); }
+  }
+  function schedule() {
+    if (S.raf) return;
+    S.raf = requestAnimationFrame(() => { S.raf = 0; if (!active()) return; paintRows(); if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#omrDock')) paintDock(false); });
+  }
+  function firstTarget() {
+    const all = cards().map(info);
+    const f = all.find(x => !x.locked && x.st === 'bad') || all.find(x => !x.locked && !x.answered) || all.find(x => !x.locked) || all[0];
+    return f ? f.idx : -1;
+  }
+
+  function active() { return !!(S.box && S.box.isConnected && document.body.classList.contains('omr-dock-on')); }
+  function init(box, o) {
+    off();
+    S.box = box; S.review = !!(o && o.review);
+    box.classList.add('omr-list');
+    document.body.classList.add('omr-dock-on');
+    addRows();
+    S.cur = S.review ? -1 : firstTarget();
+    paintRows(); paintDock(false);
+    S.mo = new MutationObserver(schedule);
+    S.mo.observe(box, { subtree: true, attributes: true, attributeFilter: ['class', 'disabled', 'style', 'data-currently-wrong', 'data-already-correct'] });
+    box.addEventListener('click', schedule);
+    box.addEventListener('input', schedule);
+    // 다른 화면으로 가면(하단 바를 숨기면) 패널도 끕니다.
+    if (typeof hideFooter === 'function' && !hideFooter._omrl) {
+      const orig = hideFooter;
+      hideFooter = function () { off(); return orig.apply(this, arguments); };
+      hideFooter._omrl = true;
+    }
+    if (window.ResizeObserver) {
+      const f = document.getElementById('globalFooter');
+      if (f) { S.ro = new ResizeObserver(fitBody); S.ro.observe(f); }
+    }
+  }
+  function off() {
+    if (S.mo) { S.mo.disconnect(); S.mo = null; }
+    if (S.ro) { S.ro.disconnect(); S.ro = null; }
+    const d = document.getElementById('omrDock');
+    if (d) d.remove();
+    if (document.body.classList.contains('omr-dock-on')) { document.body.classList.remove('omr-dock-on'); document.body.style.removeProperty('padding-bottom'); }
+    S.box = null; S.cur = -1;
+  }
+  // 채점 뒤: 첫 오답(없으면 첫 미입력)을 패널에 엽니다.
+  function afterGrade(wrong, blank) {
+    S.review = false;
+    const t = firstTarget();
+    if (wrong > 0) showToast('🔓 오답 잠금이 해제되었습니다. 틀린 문제를 다시 풀어보십시오.', 'info');
+    else if (blank > 0) showToast(`✏️ 채점이 반영되었습니다. 미입력된 ${blank}문제를 마저 풀어보십시오.`, 'info');
+    else showToast('🎉 모든 문제를 맞혔습니다!', 'success');
+    if (wrong > 0 || blank > 0) select(t); else { S.cur = -1; paintRows(); paintDock(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  }
+  document.addEventListener('keydown', onKey);
+  return { init, off, active, afterGrade, select };
 })();

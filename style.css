@@ -2116,3 +2116,74 @@ html body #selectPage.panel .sf-type input { width: 17px !important; height: 17p
 
 /* ===================== 문항 이미지 태그 <image>: 어느 화면에서나 가운데 정렬 ===================== */
 img.qimg { display: block !important; margin: 6px auto !important; max-width: 100% !important; height: auto !important; }
+
+/* ===================== OMR 번호 리스트 + 하단 답안 패널 (student-quiz.js OMRL) ===================== */
+.omr-container.omr-list { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+@media (min-width: 700px) { .omr-container.omr-list { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .omr-container.omr-list { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.omr-list > .omr-card { padding: 0 !important; margin: 0 !important; border-radius: 10px; border: 1px solid #e5e7eb; box-shadow: none; overflow: hidden; background: #fff; }
+.omr-list > .omr-card > .q-header-flex,
+.omr-list > .omr-card > .omr-options-wrap,
+.omr-list > .omr-card > .desc-input-group { display: none !important; }
+.omr-list > .omr-card.online-open,
+.omr-list > .omr-card.exp-open { grid-column: 1 / -1; }
+.omr-list > .omr-card > .online-box,
+.omr-list > .omr-card > .explanation-box { margin: 0 10px 10px; }
+.omr-row { display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 10px; cursor: pointer; user-select: none; -webkit-user-select: none; position: relative; -webkit-tap-highlight-color: transparent; }
+.omr-row .ol-no { font-weight: bold; font-size: 15px; min-width: 26px; color: #1f2937; }
+.omr-row .ol-ty { flex: 1; min-width: 0; font-size: 11px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.omr-row .ol-ans { min-width: 30px; max-width: 46%; height: 30px; padding: 0 6px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; background: #f3f4f6; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.omr-row .ol-ans.is-text { font-size: 11px; min-width: 42px; }
+.omr-list > .omr-card { min-width: 0; }
+.omr-row .ol-lock { position: absolute; right: 5px; top: 2px; font-size: 9px; color: #059669; }
+.omr-card.ol-answered .omr-row .ol-ans { background: #2b6cb0; color: #fff; }
+.omr-card.ol-cur { border: 2px solid #2b6cb0 !important; box-shadow: 0 0 0 3px #dbeafe !important; }
+.omr-card.ol-cur .omr-row { padding: 0 9px; height: 44px; }
+.omr-card.ol-ok, .omr-card.ol-fix { background: #f0fdf4; border-color: #bbf7d0; }
+.omr-card.ol-ok .omr-row .ol-ans { background: #d1fae5; color: #059669; }
+.omr-card.ol-fix .omr-row .ol-ans { background: #fef9c3; color: #ca8a04; }
+.omr-card.ol-bad { border-color: #fecaca; }
+.omr-card.ol-bad .omr-row .ol-no { color: #dc2626; }
+.omr-card.ol-bad.ol-locked .omr-row .ol-ans { background: #fee2e2; color: #b91c1c; }
+.omr-card.ol-bad:not(.ol-answered) .omr-row .ol-ans { background: #fee2e2; color: #dc2626; }
+#quizPage.wk-omr .omr-list > .omr-card { border-top-width: 1px; }
+#quizPage.wk-omr .omr-card.ol-answered .omr-row .ol-ans { background: #1e3a5f; }
+#quizPage.wk-omr .omr-card.ol-cur { border-color: #1e3a5f !important; }
+
+body.omr-dock-on #globalFooter { flex-direction: column; align-items: stretch; box-shadow: 0 -6px 18px rgba(15, 23, 42, .08); }
+body.omr-dock-on #omrBtnContainer { margin: 0 auto; }
+#omrDock { width: 100%; max-width: 600px; margin: 0 auto; }
+#omrDock .od-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+#omrDock .od-no { font-size: 18px; font-weight: bold; color: #1e40af; }
+#omrDock .od-ty { font-size: 12px; color: #6b7280; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30%; }
+#omrDock .od-st { font-size: 12px; font-weight: bold; }
+#omrDock .od-st.ok { color: #059669; } #omrDock .od-st.fix { color: #ca8a04; } #omrDock .od-st.bad { color: #dc2626; }
+#omrDock .od-sp { flex: 1; }
+#omrDock .od-nav { width: 34px; height: 34px; min-height: 0; line-height: 1; padding: 0; margin: 0; border-radius: 8px; border: 1px solid #e5e7eb; background: #fff; color: #374151; font-size: 14px; cursor: pointer; flex: none; }
+#omrDock .od-mini { width: auto; height: 32px; min-height: 0; line-height: 1; padding: 0 10px; margin: 0; border-radius: 8px; border: none; font-size: 12px; color: #fff; cursor: pointer; flex: none; }
+#omrDock .od-online { background: #4f46e5; } #omrDock .od-exp { background: #6b7280; }
+/* 휴대폰 공통 버튼 규칙(!important)보다 앞서도록 */
+html body #omrDock button.od-mini.od-mini { height: 32px !important; min-height: 0 !important; padding: 0 10px !important; font-size: 12px !important; width: auto !important; }
+html body #omrDock button.od-nav.od-nav { width: 34px !important; height: 34px !important; min-height: 0 !important; padding: 0 !important; font-size: 14px !important; }
+html body #omrDock button.od-opt.od-opt { height: 50px !important; min-height: 0 !important; padding: 0 !important; font-size: 22px !important; }
+html body #omrDock button.od-done.od-done { width: auto !important; height: auto !important; padding: 9px 16px !important; font-size: 14px !important; }
+#omrDock .od-opts { display: flex; gap: 6px; }
+#omrDock .od-opt { flex: 1; min-width: 0; height: 50px; min-height: 0; line-height: 1; margin: 0; padding: 0; border-radius: 12px; border: 1.5px solid #d1d5db; background: #fff; color: #1f2937; font-size: 22px; font-weight: bold; cursor: pointer; }
+#omrDock .od-opt.active { background: #2b6cb0; border-color: #2b6cb0; color: #fff; }
+body:has(#quizPage.wk-omr) #omrDock .od-opt.active { background: #1e3a5f; border-color: #1e3a5f; }
+#omrDock .od-opt.correct { background: #d1fae5; border-color: #10b981; color: #065f46; }
+#omrDock .od-opt.wrong { background: #fee2e2; border-color: #ef4444; color: #991b1b; }
+#omrDock .od-opt.corrected { background: #fef9c3; border-color: #eab308; color: #ca8a04; }
+#omrDock .od-opt.dimmed { opacity: .3; }
+#omrDock .od-opt:disabled { cursor: default; }
+#omrDock .od-desc { display: flex; flex-direction: column; gap: 6px; }
+#omrDock .od-desc label { display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 14px; color: #374151; margin: 0; }
+#omrDock .od-desc label > span { min-width: 28px; }
+#omrDock .od-desc input { flex: 1; min-width: 0; height: 42px; margin: 0; border: 1.5px solid #d1d5db; border-radius: 10px; padding: 0 12px; font-size: 16px; box-sizing: border-box; }
+#omrDock .od-desc input:focus { outline: none; border-color: #2b6cb0; box-shadow: 0 0 0 3px #dbeafe; }
+#omrDock .od-done { align-self: flex-end; width: auto; margin: 0; background: #2b6cb0; color: #fff; border: none; border-radius: 10px; padding: 9px 16px; font-weight: bold; font-size: 14px; cursor: pointer; }
+#omrDock .od-auto { display: flex; align-items: center; gap: 5px; margin: 8px 0 0; font-size: 12px; color: #6b7280; cursor: pointer; font-weight: normal; }
+#omrDock .od-auto input { width: auto; margin: 0; }
+#omrDock .od-count { font-size: 12px; color: #6b7280; margin: 4px 0 8px; }
+#omrDock .od-count b { color: #d97706; }
+#omrDock .od-empty { text-align: center; color: #6b7280; font-size: 13px; padding: 8px 0 10px; }
