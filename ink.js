@@ -56,7 +56,9 @@
   function keyOf(col) {
     const box = col.closest('.online-box');
     if (!box) return null;
-    const card = box.closest('.question-card[data-idx]') || box.querySelector('.question-card[data-idx]');
+    // OMR 하단 패널로 옮겨진 시험지는 원래 카드 번호(data-card-idx)로 찾습니다.
+    const card = box.closest('.question-card[data-idx]') || box.querySelector('.question-card[data-idx]')
+      || (box.dataset.cardIdx != null ? document.querySelector('.question-card[data-idx="' + box.dataset.cardIdx + '"]') : null);
     let qid = '';
     try {
       const q = card && CURRENT_QUIZ_DATA[parseInt(card.getAttribute('data-idx'), 10)];

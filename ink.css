@@ -12,7 +12,7 @@ body.ink-mode .online-box .op-left input, body.ink-mode .online-box .op-right in
 body.ink-mode .online-box button { cursor: auto; }
 
 .ink-toggle-gap { display: inline-block; width: 10px; }
-#quizPage .online-box .op-font-bar button.ink-toggle.active { background: #1e40af !important; border-color: #1e40af !important; color: #fff !important; }
+#quizPage .online-box .op-font-bar button.ink-toggle.active, #omrDock .online-box .op-font-bar button.ink-toggle.active.active { background: #1e40af !important; border-color: #1e40af !important; color: #fff !important; }
 
 /* 도구 막대: 펜을 켰거나 전자펜이 감지되면 보입니다 */
 .online-box .ink-bar { display: none; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 8px; padding: 6px 8px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 8px; font-family: var(--font-base); font-size: 12px; }

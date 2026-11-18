@@ -770,7 +770,7 @@ function hideWordPopover() {
       const sel = window.getSelection();
       const node = sel && sel.anchorNode;
       const el = node && (node.nodeType === 1 ? node : node.parentElement);
-      if (el && el.closest('#quizPage')) sel.removeAllRanges();
+      if (el && el.closest('#quizPage, #omrPaper')) sel.removeAllRanges();
     } catch (e) {}
   }
 }
@@ -796,7 +796,7 @@ function _checkWordSelection() {
   if (!text || text.length > 40 || !WORD_PICK_RE.test(text)) return;
   const node = sel.anchorNode;
   const el = node && (node.nodeType === 1 ? node : node.parentElement);
-  if (!el || !el.closest('#quizPage') || el.closest('input, textarea, button, .omr-options-wrap, .op-opt, .op-font-bar')) return;
+  if (!el || !el.closest('#quizPage, #omrPaper') || el.closest('input, textarea, button, .omr-options-wrap, .op-opt, .op-font-bar')) return;
   showWordPopover(text, sel.getRangeAt(0));
 }
 

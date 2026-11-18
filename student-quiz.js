@@ -2661,7 +2661,7 @@ function spPlaySelected() {
  */
 window.OMRL = (function () {
   const CIRC = ['①', '②', '③', '④', '⑤'];
-  const S = { box: null, cur: -1, review: false, mo: null, ro: null, raf: 0, auto: true };
+  const S = { box: null, cur: -1, review: false, mo: null, ro: null, raf: 0, auto: true, paper: false, paperIdx: -1, paperSeq: 0 };
   try { S.auto = localStorage.getItem('omrAutoNext') !== '0'; } catch (e) {}
   const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   const cards = () => S.box ? Array.from(S.box.querySelectorAll(':scope > .omr-card[data-idx]')) : [];
@@ -2730,6 +2730,16 @@ window.OMRL = (function () {
     if (!d) {
       d = document.createElement('div');
       d.id = 'omrDock';
+      // 위: 온라인 시험지(지문·질문·선택지, 스크롤) / 아래: 번호·OMR 버튼
+      d.innerHTML = '<div class="od-paper" id="omrPaper"></div><div class="od-ctrl"></div>';
+      d.querySelector('.od-paper').addEventListener('click', e => {
+        // 시험지 안 [기본] 글자 크기: 패널 안에서는 휴대폰 자동 맞춤 대신 기본 크기로
+        const fb = e.target.closest && e.target.closest('[data-font="auto"]');
+        if (!fb) return;
+        e.stopPropagation();
+        const box = d.querySelector('.od-paper .online-box');
+        if (box && typeof saveOnlineFont === 'function') { saveOnlineFont(null); applyOnlineFont(box, null); }
+      }, true);
       d.addEventListener('click', onDockClick);
       d.addEventListener('input', onDockInput);
       d.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches('.od-desc input')) { e.preventDefault(); next(true); } });
@@ -2738,8 +2748,9 @@ window.OMRL = (function () {
     return d;
   }
   function paintDock(focus) {
-    const d = dock();
-    if (!d) return;
+    const dk = dock();
+    if (!dk) return;
+    const d = dk.querySelector('.od-ctrl');
     const c = card(S.cur);
     if (!c) { d.innerHTML = `<div class="od-empty">${S.review ? '위 번호를 누르면 고른 답과 해설을 볼 수 있습니다.' : '위 번호를 누르면 여기에서 답을 고를 수 있습니다.'}</div>`; fitBody(); return; }
     const f = info(c);
@@ -2747,7 +2758,7 @@ window.OMRL = (function () {
     const btnExp = c.querySelector('button[data-exp-btn]');
     const showOnline = btnOnline && btnOnline.style.display !== 'none';
     const showExp = btnExp && btnExp.style.display !== 'none';
-    const onlineOpen = c.classList.contains('online-open');
+    const onlineOpen = S.paper;
     const expOpen = c.classList.contains('exp-open');
     const stTxt = f.st === 'ok' ? '<span class="od-st ok">정답 ✓</span>' : f.st === 'fix' ? '<span class="od-st fix">정답 ▲</span>'
       : (f.st === 'bad' && f.locked) ? '<span class="od-st bad">오답 ✖</span>' : (f.st === 'bad' ? '<span class="od-st bad">다시 풀기</span>' : '');
@@ -2795,6 +2806,18 @@ window.OMRL = (function () {
   function fitBody() {
     const footer = document.getElementById('globalFooter');
     if (!footer || !document.body.classList.contains('omr-dock-on')) return;
+    const dk = document.getElementById('omrDock');
+    const paper = dk && dk.querySelector('.od-paper');
+    const paperH = paper && S.paper ? paper.offsetHeight : 0;
+    const ctrlH = footer.offsetHeight - paperH;
+    // 시험지는 머리글 아래부터 OMR 버튼 위까지 남은 높이를 씁니다.
+    const header = document.getElementById('globalHeader');
+    const headH = header && getComputedStyle(header).display !== 'none' ? header.offsetHeight : 0;
+    const viewH = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    if (dk) dk.style.setProperty('--od-paper-max', Math.max(160, viewH - headH - ctrlH - 16) + 'px');
+    // 휴대폰 단어장 시트는 OMR 패널 바로 위에 쌓습니다.
+    document.documentElement.style.setProperty('--omr-dock-h', ctrlH + 'px');
+    if (S.paper) { document.body.style.setProperty('padding-bottom', (ctrlH + 16) + 'px', 'important'); return; }
     // 휴대폰 CSS가 body 아래 여백을 !important로 정해 두어서 같은 우선순위로 덮어씁니다.
     document.body.style.setProperty('padding-bottom', (footer.offsetHeight + 16) + 'px', 'important');
   }
@@ -2804,7 +2827,8 @@ window.OMRL = (function () {
     if (!card(i)) return;
     S.cur = i;
     paintRows();
-    paintDock(true);
+    paintDock(!S.paper);
+    if (S.paper && S.paperIdx !== i) openPaper(i);
     const c = card(i);
     if (c) {
       const r = c.getBoundingClientRect(), footer = document.getElementById('globalFooter');
@@ -2828,7 +2852,18 @@ window.OMRL = (function () {
   function onDockClick(e) {
     const c = card(S.cur);
     if (!c) return;
-    const opt = e.target.closest('[data-opt]');
+    // 위 시험지의 선택지: 시험지 자체 처리(bindOnlinePaper)가 OMR을 눌러 주므로, 여기서는 표시만 맞추고 다음 문항으로
+    const paperOpt = e.target.closest('.od-paper .op-opt');
+    if (paperOpt) {
+      setTimeout(() => {
+        const f = info(c);
+        paintRows(); paintDock(false);
+        if (f.answered && S.auto && card(S.cur) === c) setTimeout(() => { if (card(S.cur) === c) next(true); }, 160);
+      }, 0);
+      return;
+    }
+    if (e.target.closest('.od-paper')) return;
+    const opt = e.target.closest('.od-ctrl [data-opt]');
     const act = e.target.closest('[data-od]');
     if (opt && !opt.disabled) {
       const r = c.querySelector(`.omr-options-wrap input[name="omr_${S.cur}"][value="${opt.dataset.opt}"]`);
@@ -2845,8 +2880,8 @@ window.OMRL = (function () {
     else if (a === 'next1') select((S.cur + 1) % cards().length);
     else if (a === 'next') { if (!next(true)) next(false); }
     else if (a === 'online') {
-      const b = Array.from(c.querySelectorAll('.q-header-flex .btn-exp')).find(x => !x.hasAttribute('data-exp-btn'));
-      if (b) { b.click(); setTimeout(() => paintDock(false), 60); }
+      if (S.paper) closePaper(); else openPaper(S.cur);
+      paintDock(false);
     } else if (a === 'exp') {
       const b = c.querySelector('button[data-exp-btn]');
       if (b) { b.click(); setTimeout(() => { paintRows(); paintDock(false); }, 60); }
@@ -2868,7 +2903,7 @@ window.OMRL = (function () {
     if (!active() || e.ctrlKey || e.metaKey || e.altKey) return;
     if (/^(INPUT|TEXTAREA|SELECT)$/.test((e.target && e.target.tagName) || '')) return;
     const d = document.getElementById('omrDock');
-    if (/^[1-5]$/.test(e.key) && d) { const b = d.querySelector(`[data-opt="${e.key}"]`); if (b && !b.disabled) { e.preventDefault(); b.click(); } }
+    if (/^[1-5]$/.test(e.key) && d) { const b = d.querySelector(`.od-ctrl [data-opt="${e.key}"]`); if (b && !b.disabled) { e.preventDefault(); b.click(); } }
     else if (e.key === 'ArrowRight' && S.cur >= 0) { e.preventDefault(); select((S.cur + 1) % cards().length); }
     else if (e.key === 'ArrowLeft' && S.cur >= 0) { e.preventDefault(); select((S.cur - 1 + cards().length) % cards().length); }
   }
@@ -2882,10 +2917,76 @@ window.OMRL = (function () {
     return f ? f.idx : -1;
   }
 
+  /* ---------- 온라인 시험지 (OMR 버튼 바로 위) ----------
+   * 카드의 온라인 보기 상자(.online-box)를 패널 위쪽으로 옮겨 보여 주고, 닫거나 다른 문항으로 가면 카드로 돌려놓습니다.
+   * 상자의 선택지 ↔ OMR 연동(bindOnlinePaper)은 카드에 묶여 있어 위치와 상관없이 그대로 동작합니다.
+   */
+  const isPhone = () => window.innerWidth <= 820;
+  function returnBox() {
+    const dk = document.getElementById('omrDock');
+    const paper = dk && dk.querySelector('.od-paper');
+    const box = paper && paper.querySelector('.online-box');
+    if (!box) return;
+    const c = card(S.paperIdx);
+    box.style.display = 'none';
+    if (c) c.insertBefore(box, c.querySelector(':scope > .explanation-box'));
+    else box.remove();
+  }
+  async function openPaper(i) {
+    const c = card(i);
+    if (!c) return;
+    const seq = ++S.paperSeq;
+    S.paper = true;
+    if (isPhone() && typeof isVocabDrawerOpen === 'function' && isVocabDrawerOpen()) closeVocabDrawer();   // 한 번에 하나만
+    const dk = dock(); const paper = dk.querySelector('.od-paper');
+    dk.classList.add('paper-on');
+    returnBox();
+    S.paperIdx = i;
+    const idx = Number(c.getAttribute('data-idx'));
+    const q = CURRENT_QUIZ_DATA[idx];
+    let box = c.querySelector(':scope > .online-box');
+    if (!box || !q) return;
+    if (!box.innerHTML) paper.innerHTML = '<div class="od-paper-loading">문제를 불러오는 중...</div>';
+    try {
+      await ensureOMRQuestionDetail(q);
+      if (seq !== S.paperSeq || !S.paper || !card(i)) return;
+      if (box.innerHTML === '') box.innerHTML = generateOnlineViewHtml(q);
+      box.dataset.cardIdx = String(idx);   // 필기(ink.js)가 문항을 찾을 수 있게
+      paper.innerHTML = '';
+      paper.appendChild(box);
+      box.style.display = 'block';
+      bindOnlinePaper(c, box, idx);
+      const saved = typeof getSavedOnlineFont === 'function' ? getSavedOnlineFont() : null;
+      if (typeof applyOnlineFont === 'function') applyOnlineFont(box, saved);
+      paper.scrollTop = 0;
+    } catch (err) {
+      if (seq === S.paperSeq) paper.innerHTML = '<div class="od-paper-loading">문항을 불러오지 못했습니다. 다시 눌러 주세요.</div>';
+    }
+    fitBody();
+  }
+  function closePaper() {
+    S.paperSeq++;
+    returnBox();
+    S.paper = false; S.paperIdx = -1;
+    const dk = document.getElementById('omrDock');
+    if (dk) { dk.classList.remove('paper-on'); const p = dk.querySelector('.od-paper'); if (p) p.innerHTML = ''; }
+    fitBody();
+  }
+  // 휴대폰: 단어장 시트를 열면 시험지를 닫아 OMR 패널 위에 단어장이 쌓이게 합니다.
+  function hookVocab() {
+    if (typeof openVocabDrawer !== 'function' || openVocabDrawer._omrl) return;
+    const orig = openVocabDrawer;
+    openVocabDrawer = function () {
+      if (active() && isPhone() && S.paper) { closePaper(); paintDock(false); }
+      return orig.apply(this, arguments);
+    };
+    openVocabDrawer._omrl = true;
+  }
+
   function active() { return !!(S.box && S.box.isConnected && document.body.classList.contains('omr-dock-on')); }
   function init(box, o) {
     off();
-    S.box = box; S.review = !!(o && o.review);
+    S.box = box; S.review = !!(o && o.review); S.paper = false; S.paperIdx = -1;
     box.classList.add('omr-list');
     document.body.classList.add('omr-dock-on');
     addRows();
@@ -2896,6 +2997,7 @@ window.OMRL = (function () {
     box.addEventListener('click', schedule);
     box.addEventListener('input', schedule);
     // 다른 화면으로 가면(하단 바를 숨기면) 패널도 끕니다.
+    hookVocab();
     if (typeof hideFooter === 'function' && !hideFooter._omrl) {
       const orig = hideFooter;
       hideFooter = function () { off(); return orig.apply(this, arguments); };
@@ -2907,11 +3009,12 @@ window.OMRL = (function () {
     }
   }
   function off() {
+    if (S.paper) closePaper();
     if (S.mo) { S.mo.disconnect(); S.mo = null; }
     if (S.ro) { S.ro.disconnect(); S.ro = null; }
     const d = document.getElementById('omrDock');
     if (d) d.remove();
-    if (document.body.classList.contains('omr-dock-on')) { document.body.classList.remove('omr-dock-on'); document.body.style.removeProperty('padding-bottom'); }
+    if (document.body.classList.contains('omr-dock-on')) { document.body.classList.remove('omr-dock-on'); document.body.style.removeProperty('padding-bottom'); document.documentElement.style.removeProperty('--omr-dock-h'); }
     S.box = null; S.cur = -1;
   }
   // 채점 뒤: 첫 오답(없으면 첫 미입력)을 패널에 엽니다.
@@ -2924,5 +3027,7 @@ window.OMRL = (function () {
     if (wrong > 0 || blank > 0) select(t); else { S.cur = -1; paintRows(); paintDock(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }
   }
   document.addEventListener('keydown', onKey);
+  window.addEventListener('resize', () => { if (active()) fitBody(); });
+  if (window.visualViewport) window.visualViewport.addEventListener('resize', () => { if (active()) fitBody(); });
   return { init, off, active, afterGrade, select };
 })();
