@@ -34,6 +34,7 @@ ${safe ? `<script>
 }
 
 // 외부(GitHub) 프론트엔드에서 호출 가능한 함수 목록. 새 서버 함수를 화면에서 쓰려면 여기에 추가해야 합니다.
+// (관리자 전용 함수는 여기와 아래 ADMIN_API_ 두 곳 모두에 넣어야 합니다. 한쪽만 넣으면 화면에서 거절되거나 누구나 부를 수 있게 됩니다.)
 const PUBLIC_API_ = new Set([
   'doLogin', 'getManagedStudents',
   // 단어장
@@ -57,7 +58,11 @@ const PUBLIC_API_ = new Set([
   // 속도 기록 (관리자)
   'adminGetPerf',
   // 문제은행 편집기 (관리자)
-  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden',
+  'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden', 'qbMoveColumns', 'qbMoveQuestions',
+  // 과제 삭제·완료 처리 (관리자 · 배부기록)
+  'deleteAssignments', 'adminCompleteAssignments',
+  // 자동 포인트: 제출 직후 화면이 부르는 처리 신호
+  'pointsKick',
   // 학생 관리 (관리자: 비밀번호 인증 필요)
   'adminListStudents', 'adminAddStudents', 'adminUpdateStudent', 'adminUpdateStudents', 'adminStudentDataSummary', 'adminDeleteStudent'
 ]);
@@ -71,7 +76,7 @@ const ADMIN_API_ = new Set([
   'getQuestionMetaIndex', 'getStudentQuestionStats', 'loadWeeklyStudentStats', 'getAssignmentResult',
   'deleteWord',
   'qbListSheets', 'qbLoadSheet', 'qbWriteQuestions', 'qbCreateSheet', 'qbSetHidden', 'qbMoveColumns', 'qbMoveQuestions',
-  'deleteAssignments'
+  'deleteAssignments', 'adminCompleteAssignments'
 ]);
 
 // doPost(깃헙 화면)로 들어온 요청인지 표시. 관리자 기능은 이 길로만 열립니다.
@@ -266,6 +271,7 @@ function addWordToFormAndSheet(user, word, meaning, opts) {
     sheet.appendRow([word, meaning]);
     _invalidateVocabCache(user);
     _appendVocabLog_(user, word, meaning, 'add');
+    _ptsEnqueue_((typeof user === 'object') ? user.id : user, 'vocab_add', { word: word });
     return '✅ 저장 완료';
   } catch (e) {
     return '오류 발생: ' + String(e);
@@ -398,12 +404,14 @@ function setWordsMemorized(user, words, memorized) {
     const col = [];
     const logs = [];
     let changed = 0;
+    const changedWords = [];
     for (let i = 1; i < data.length; i++) {
       const cur = memoCol < data[i].length ? data[i][memoCol] : '';
       const w = String(data[i][0] || '').trim();
       if (w && want.has(w.toLowerCase()) && String(cur) !== mark) {
         col.push([mark]);
         changed++;
+        changedWords.push(w);
         if (memorized) logs.push([new Date(), (typeof user === 'object') ? (user.name || '') : String(user || ''), w, String(data[i][1] || ''), 'memorize']);
       } else {
         col.push([cur]);
@@ -413,6 +421,8 @@ function setWordsMemorized(user, words, memorized) {
       sheet.getRange(2, memoCol + 1, col.length, 1).setValues(col);
       _invalidateVocabCache(user);
       if (logs.length) _vocabLogAppend_(ss, user, logs);
+      // 자동 포인트: 시험으로 외움(+1, 등록 24시간 뒤) / 외움 해제(-1)
+      _ptsEnqueue_((typeof user === 'object') ? user.id : user, memorized ? 'memo' : 'unmemo', { words: changedWords });
     }
     return { success: true, count: changed };
   } catch (e) {
@@ -1429,8 +1439,15 @@ function _syncResultSummary_(ctx,history,forceComplete) {
   const allCorrect=total>0 && correctNow>=total;
   const statusCell=ctx.assignmentSheet.getRange(ctx.assignmentRow,7);
   const current=String(statusCell.getValue()||'').trim();
-  const next=allCorrect?'완료':'미완료';
+  // 선생님이 '완료 처리'한 과제(L열 'Y')는 다시 제출해도 완료로 둡니다.
+  const manual=String(ctx.assignmentSheet.getRange(ctx.assignmentRow,12).getValue()||'').trim()==='Y';
+  const next=(allCorrect||manual)?'완료':'미완료';
   if(current!==next) statusCell.setValue(next);
+  if(next==='완료' && current!=='완료') {
+    let weekly=false;
+    try { weekly=String(ctx.assignmentSheet.getRange(ctx.assignmentRow,9).getValue()||'').toUpperCase()==='TRUE'; } catch(e) {}
+    _ptsEnqueue_(ctx.id,'asg_done',{asg:ctx.assignmentId,total:total,weekly:weekly});
+  }
   ctx.assignmentSheet.getRange(ctx.assignmentRow,10,1,2).setValues([[answered,strict]]);
 }
 
@@ -1558,6 +1575,13 @@ function logAttempt(payload) {
     }, 30000);
     logCommitted=true;count=rows.length;
     if (attemptKey) { try { cache.put(attemptKey,String(count),21600); } catch(e) {} }
+    // 자동 포인트: 답안만 대기열에 적습니다(채점은 서버가 다시 함 → pointsProcessQueue)
+    if (rows.length) {
+      let weekly=false;
+      try { if (ctx) weekly=String(ctx.assignmentSheet.getRange(ctx.assignmentRow,9).getValue()||'').toUpperCase()==='TRUE'; } catch(e) {}
+      _ptsEnqueue_(user.id,'attempt',{asg:ctx?ctx.assignmentId:'',weekly:weekly,total:ctx?(ctx.qids.length||ctx.totalCount):0,
+        answers:answers.map(a=>({qid:_S(a.qid),sel:String(a.selected)}))});
+    }
     if(ctx) {
       // [속도] 직전 결과표가 최신(READY)이면 그 위에 이번 답안만 더합니다. 전체 로그 검색은 결과표가 없을 때만.
       const stored=wasReady?_storedResultRows_(ctx,entry):null;
@@ -3197,6 +3221,7 @@ function getStudentHome(user) {
     notices: notices,
     unread: notices.filter(n => !n.read).length,
     points: { balance: st.balances[me.id] || 0, pending: st.pending[me.id] || 0, unit: POINT_EXCHANGE_UNIT },
+    week: _ptsWeekInfo_(me.id),
     tarot: { on: TAROT_ON, cost: TAROT_COST }
   };
 }
@@ -3224,6 +3249,7 @@ function getMyPoints(user) {
     .filter(r => _npStr_(r[2]) === me.id).map(_exchangeObj_).reverse().slice(0, 20);
   return {
     points: { balance: st.balances[me.id] || 0, pending: st.pending[me.id] || 0, unit: POINT_EXCHANGE_UNIT },
+    week: _ptsWeekInfo_(me.id),
     history: history, requests: requests
   };
 }
@@ -4348,3 +4374,511 @@ function qbMoveQuestions(fromName, moves, opts) {
   }, 60000);
 }
 function _qbColNum_(L) { return String(L).split('').reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0); }
+
+/* ===================================================================================
+ * 자동 포인트 (온라인 프로그램 사용 적립)                                  2026-11 추가
+ * -----------------------------------------------------------------------------------
+ *  단어장 등록 +1 / 암기 완료 +1 (등록 24시간 뒤 시험에서 맞혔을 때) / 암기 해제 -1
+ *  문제 풀이: 첫 시도 정답 +2, 오답 수정(과제·오답노트) +1 — 같은 문제는 30일에 한 번만
+ *  과제 완료 보너스: 문항 수 × 2 (최종 완료 때 과제당 한 번, 삭제돼도 회수 안 함)
+ *  주간평가: 첫 제출 점수로 5 / 35 / 55 / 75 / 105 (과제당 한 번, 주간 한도와 별도)
+ *  밀린 과제(POINT_ASG_FROM 전에 배부): 문제 점수·완료 보너스·주간평가 포인트 없음
+ *  지연 차감: 배부 7일이 지나도 미완료면 하루 -1 (POINT_LATE_START 날부터, 휴원생·주간평가 제외)
+ *            밀린 과제도 POINT_LATE_START부터 차감
+ *  주간 한도: 월요일 0시 기준, '받은 양' 300pt (주간평가·차감은 한도와 무관)
+ *  잔액은 0 아래로 내려가지 않습니다(차감은 잔액까지만).
+ *
+ *  동작 방식
+ *  - 제출·단어 저장 같은 원래 기능은 '포인트_대기' 시트에 한 줄만 적고 끝납니다(속도 유지).
+ *  - pointsProcessQueue()가 대기 줄을 읽어 서버에서 다시 채점하고 포인트를 계산합니다.
+ *    (화면이 제출 직후 pointsKick을 부르고, 10분마다 예약 실행으로도 처리)
+ *  - 포인트내역에는 학생·날짜·종류별로 한 줄씩 묶어 적습니다(관련ID 'AUTO|날짜|종류|…').
+ *  - 처음 한 번 Apps Script 편집기에서 pointsSetup()을 실행해 예약 실행을 켜 주세요.
+ * =================================================================================== */
+const POINT_AUTO_ON = true;              // false면 자동 적립·차감을 모두 멈춤
+const POINT_WEEKLY_CAP = 300;            // 주간 한도(받은 양 기준)
+const POINT_DEDUP_DAYS = 30;             // 같은 문제는 이 기간에 한 번만 인정
+const POINT_WORD_WAIT_HOURS = 24;        // 단어 등록 후 이 시간이 지나야 암기 포인트
+const POINT_ASG_FROM = '2026-11-19';     // 이 날 전에 배부된 과제(밀린 과제)는 과제 포인트 없음
+const POINT_LATE_START = '2026-12-01';   // 지연 차감을 시작하는 날 (밀린 과제 포함, 이 날 전에는 차감 없음)
+const POINT_LATE_GRACE_DAYS = 7;         // 배부 후 이 기간이 지나면 하루 -1
+const POINT_WEEKLY_TABLE = [[100, 105], [90, 75], [80, 55], [70, 35], [0, 5]];   // [이상 점수, 총 포인트]
+const PTS_QUEUE_SHEET = '포인트_대기';
+const PTS_Q_SHEET = '포인트_문항';
+const PTS_W_SHEET = '포인트_단어';
+const PTS_A_SHEET = '포인트_과제';
+const PTS_CAPPED = { '문제': 1, '단어': 1, '과제완료': 1 };   // 주간 한도에 들어가는 종류
+
+/* ---------- 대기열에 적기 (원래 기능 안에서 호출, 실패해도 원래 기능은 그대로) ---------- */
+function _ptsEnqueue_(studentId, kind, data) {
+  if (!POINT_AUTO_ON) return;
+  try {
+    const sid = String(studentId || '').trim();
+    if (!sid) return;
+    const sh = _ptsSheet_(PTS_QUEUE_SHEET, ['시각', '학생ID', '종류', '데이터']);
+    sh.appendRow([_nowIso(), sid, kind, JSON.stringify(data || {})]);
+  } catch (e) { console.error('point enqueue', e); }
+}
+function _ptsSheet_(name, headers) {
+  const ss = _logSS();
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, sh.getMaxRows(), headers.length).setNumberFormat('@');
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+/* ---------- 날짜 ---------- */
+function _ptsTz_() { return Session.getScriptTimeZone(); }
+function _ptsDay_(d) { return Utilities.formatDate(d || new Date(), _ptsTz_(), 'yyyy-MM-dd'); }
+// 이번 주 월요일(yyyy-MM-dd)
+function _ptsWeekStart_(d) {
+  d = d || new Date();
+  const dow = Number(Utilities.formatDate(d, _ptsTz_(), 'u'));   // 1=월 … 7=일
+  return _ptsDay_(new Date(d.getTime() - (dow - 1) * 86400000));
+}
+function _ptsParseTime_(s) {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return null;
+  // 스크립트 시간대(한국) 기준 문자열 → 시각
+  return Utilities.parseDate(m[1] + '-' + m[2] + '-' + m[3] + ' ' + (m[4] || '00') + ':' + (m[5] || '00') + ':' + (m[6] || '00'), _ptsTz_(), 'yyyy-MM-dd HH:mm:ss');
+}
+
+/* ---------- 서버 채점 (화면과 같은 규칙) ---------- */
+function _ptsBracketMatch_(input, template) {
+  const pattern = String(template).toLowerCase().trim().replace(/[.,?!]/g, '')
+    .replace(/\[([^\]]+)\]/g, (m, c) => '(' + c.split('/').map(s => s.trim()).join('|') + ')')
+    .replace(/\s+/g, '\\s*');
+  try { return new RegExp('^' + pattern + '$', 'i').test(input); }
+  catch (e) { return input === String(template).toLowerCase().trim().replace(/[.,?!]/g, ''); }
+}
+function _ptsGrade_(q, selected) {
+  const sel = String(selected == null ? '' : selected);
+  if (!q || !sel.trim()) return null;
+  const correct = String(q.answer || '').trim();
+  if (String(q.type || '').indexOf('서술형') !== -1) {
+    const answers = correct.split('||').map(s => s.trim());
+    const inputs = sel.split('||');
+    return answers.every((a, i) => {
+      const clean = String(inputs[i] || '').toLowerCase().trim().replace(/\s+/g, ' ').replace(/[.,?!]/g, '');
+      return a.split(/\s*\/\s*(?![^\[]*\])/).some(t => _ptsBracketMatch_(clean, t));
+    });
+  }
+  const norm = v => String(v).trim().replace(/[①②③④⑤]/g, c => String('①②③④⑤'.indexOf(c) + 1));
+  return norm(sel) === norm(correct);
+}
+
+/* ---------- 포인트내역 (학생·날짜·종류별 한 줄) ---------- */
+const PTS_REASON = {
+  '문제': (c, d) => d + ' 문제 풀이 (첫 시도 정답 ' + (c.first || 0) + ' · 오답 수정 ' + (c.fix || 0) + ')',
+  '단어': (c, d) => d + ' 단어장 (등록 ' + (c.add || 0) + ' · 암기 ' + (c.memo || 0) + ')',
+  '단어차감': (c, d) => d + ' 단어 암기 해제 (' + (c.n || 0) + '개)',
+  '과제완료': (c, d) => d + ' 과제 완료 보너스 (' + (c.n || 0) + '건)',
+  '주간평가': (c, d) => d + ' 주간평가 (' + (c.score || 0) + '점)',
+  '지연': (c, d) => d + ' 과제 지연 차감 (' + (c.n || 0) + '건)'
+};
+// 대기 줄에서 모은 적립을 잠금 안에서 한 번에 적습니다. items: [{sid, cat, delta, counts, key?}]
+// 반환: 학생별 { capped: true면 이번 처리에서 주간 한도에 걸림 }
+function _ptsWriteLedger_(items, members) {
+  const out = {};
+  if (!items.length) return out;
+  _withLock_(function () {
+    const sh = _npSheet_(NP_POINT_SHEET, NP_POINT_HEADERS);
+    const rows = _npRows_(sh, NP_POINT_HEADERS.length);
+    const origLen = rows.length;
+    const today = _ptsDay_(), week = _ptsWeekStart_(), now = _nowIso(), md = today.slice(5).replace('-', '/');
+    const bal = {}, earned = {};
+    rows.forEach(r => {
+      const sid = _npStr_(r[2]);
+      bal[sid] = (bal[sid] || 0) + _npNum_(r[4]);
+      const ref = _npStr_(r[10]).split('|');
+      if (ref[0] === 'AUTO' && ref[1] >= week && PTS_CAPPED[ref[2]] && _npStr_(r[11]) !== 'Y' && _npStr_(r[6]) === '자동') {
+        earned[sid] = (earned[sid] || 0) + _npNum_(r[4]);
+      }
+    });
+    const updates = [], appends = [], notices = [];
+    items.forEach(it => {
+      const sid = it.sid, mem = members.find(m => m.id === sid);
+      if (!mem) return;
+      let delta = Math.round(it.delta || 0);
+      if (PTS_CAPPED[it.cat] && delta > 0) {
+        const left = Math.max(0, POINT_WEEKLY_CAP - (earned[sid] || 0));
+        if (delta > left) { delta = left; if (!out[sid]) out[sid] = {}; out[sid].capped = true; }
+        earned[sid] = (earned[sid] || 0) + delta;
+      }
+      if (delta < 0) delta = Math.max(delta, -Math.max(0, bal[sid] || 0));   // 잔액은 0까지만
+      if (!delta && !it.counts) return;
+      const key = 'AUTO|' + today + '|' + it.cat + (it.key ? '|' + it.key : '');
+      // 같은 날·같은 종류 줄이 있으면 더합니다.
+      let idx = -1;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (_npStr_(rows[i][2]) === sid && _npStr_(rows[i][11]) !== 'Y' && _npStr_(rows[i][10]).split('|{')[0] === key) { idx = i; break; }
+      }
+      let counts = {};
+      if (idx >= 0) { try { counts = JSON.parse('{' + (_npStr_(rows[idx][10]).split('|{')[1] || '')) || {}; } catch (e) { counts = {}; } }
+      Object.keys(it.counts || {}).forEach(k => {
+        counts[k] = (k === 'score') ? it.counts[k] : (counts[k] || 0) + it.counts[k];
+      });
+      bal[sid] = (bal[sid] || 0) + delta;
+      const reason = PTS_REASON[it.cat](counts, md) + (out[sid] && out[sid].capped && PTS_CAPPED[it.cat] ? ' · 주간 한도' : '');
+      const ref = key + '|' + JSON.stringify(counts);
+      if (idx >= 0) {
+        const r = rows[idx];
+        r[1] = now; r[4] = _npNum_(r[4]) + delta; r[5] = bal[sid]; r[7] = reason; r[10] = ref;
+        updates.push(idx);
+      } else {
+        if (!delta) return;
+        const row = [_npId_('P'), now, sid, mem.name, delta, bal[sid], '자동', reason, 'system', '자동', ref, ''];
+        rows.push(row); appends.push(row);
+      }
+    });
+    [...new Set(updates)].forEach(i => {
+      if (i < origLen) sh.getRange(i + 2, 1, 1, NP_POINT_HEADERS.length).setNumberFormat('@').setValues([rows[i].map(_npCell_)]);
+    });
+    _npAppend_(sh, appends);
+    // 주간 한도 알림: 이번 주 처음 걸렸을 때 한 번
+    Object.keys(out).forEach(sid => {
+      if (!out[sid].capped) return;
+      const ck = 'PTS_CAPNOTE_' + week + '_' + sid;
+      const props = PropertiesService.getScriptProperties();
+      if (props.getProperty(ck)) return;
+      props.setProperty(ck, '1');
+      notices.push(_personalNoticeRow_({ id: 'system', name: '자동' }, sid, '이번 주 포인트 한도 달성 🎉',
+        '이번 주 온라인 학습 포인트를 ' + POINT_WEEKLY_CAP + 'pt 모두 받았습니다. 다음 주 월요일 0시에 다시 시작됩니다.\n(주간평가 포인트는 한도와 별도로 계속 받을 수 있어요)'));
+    });
+    if (notices.length) _npAppend_(_npSheet_(NP_NOTICE_SHEET, NP_NOTICE_HEADERS), notices);
+  }, 30000);
+  return out;
+}
+
+/* ---------- 대기열 처리 ---------- */
+function pointsKick() {
+  // 화면이 제출 직후 부릅니다. 결과를 기다리지 않아도 되고, 실패해도 10분 예약 실행이 다시 처리합니다.
+  try { pointsProcessQueue(); } catch (e) { console.error('pointsKick', e); }
+  return { ok: true };
+}
+function pointsProcessQueue() {
+  if (!POINT_AUTO_ON) return { ok: true, off: true };
+  // 처리기는 한 번에 하나만(공용 잠금은 학생 제출에 쓰이므로 캐시 표식으로 따로 막습니다)
+  const cache = CacheService.getScriptCache();
+  const token = Utilities.getUuid();
+  if (cache.get('PTS_RUNNING')) return { ok: true, busy: true };
+  cache.put('PTS_RUNNING', token, 120);
+  if (cache.get('PTS_RUNNING') !== token) return { ok: true, busy: true };
+  let total = 0;
+  try {
+    for (let loop = 0; loop < 3; loop++) {
+      const qsh = _ptsSheet_(PTS_QUEUE_SHEET, ['시각', '학생ID', '종류', '데이터']);
+      const last = qsh.getLastRow();
+      if (last < 2) break;
+      const n = Math.min(last - 1, 500);
+      const raw = qsh.getRange(2, 1, n, 4).getValues();
+      _ptsProcessEvents_(raw.map(r => ({ time: _npStr_(r[0]), sid: _npStr_(r[1]), kind: _npStr_(r[2]), data: (() => { try { return JSON.parse(r[3] || '{}'); } catch (e) { return {}; } })() })));
+      qsh.deleteRows(2, n);
+      total += n;
+      if (n < 500 && qsh.getLastRow() < 2) break;
+    }
+  } finally {
+    if (cache.get('PTS_RUNNING') === token) cache.remove('PTS_RUNNING');
+  }
+  return { ok: true, processed: total };
+}
+
+function _ptsProcessEvents_(events) {
+  if (!events.length) return;
+  const members = _npMembers_().list.filter(m => m.role === 'student');
+  const isStudent = sid => members.some(m => m.id === sid);
+  const now = new Date();
+  const items = [];   // 포인트내역에 적을 것
+  const add = (sid, cat, delta, counts, key) => items.push({ sid: sid, cat: cat, delta: delta, counts: counts, key: key });
+
+  // 상태 시트 읽기
+  const qSh = _ptsSheet_(PTS_Q_SHEET, ['학생ID', 'QID', '첫시도시각', '인정점수', '인정시각']);
+  const wSh = _ptsSheet_(PTS_W_SHEET, ['학생ID', '단어', '등록시각', '암기인정']);
+  const aSh = _ptsSheet_(PTS_A_SHEET, ['과제ID', '학생ID', '종류', '포인트', '시각', '메모']);
+  const qRows = _npRows_(qSh, 5), wRows = _npRows_(wSh, 4), aRows = _npRows_(aSh, 6);
+  const qIdx = {}, wIdx = {}, aIdx = {};
+  qRows.forEach((r, i) => { qIdx[_npStr_(r[0]) + '\u0001' + _npStr_(r[1])] = i; });
+  wRows.forEach((r, i) => { wIdx[_npStr_(r[0]) + '\u0001' + _npStr_(r[1]).toLowerCase()] = i; });
+  aRows.forEach((r, i) => { aIdx[_npStr_(r[0]) + '\u0001' + _npStr_(r[2])] = i; });
+  const qDirty = new Set(), wDirty = new Set(), aNew = [];
+  const dedupMs = POINT_DEDUP_DAYS * 86400000;
+
+  // 과제 배부일 (밀린 과제 판별)
+  const asgDate = {};
+  if (events.some(e => e.data && e.data.asg)) {
+    try {
+      const ash = _logSS().getSheetByName('과제');
+      if (ash && ash.getLastRow() > 1) ash.getRange(2, 1, ash.getLastRow() - 1, 2).getValues().forEach(r => {
+        asgDate[String(r[0] || '').trim()] = r[1] instanceof Date ? _ptsDay_(r[1]) : String(r[1] || '').slice(0, 10);
+      });
+    } catch (e) { console.error('pts asg dates', e); }
+  }
+  const isOldAsg = id => !!id && !!asgDate[id] && asgDate[id] < POINT_ASG_FROM;
+  // 채점용 문항(정답·유형)
+  const qids = [];
+  events.forEach(e => { if (e.kind === 'attempt') (e.data.answers || []).forEach(a => qids.push(String(a.qid))); });
+  const qMap = {};
+  if (qids.length) {
+    try { getQuestionsByQids([...new Set(qids)], 'result').forEach(q => { qMap[q.qid] = q; }); } catch (e) { console.error('pts questions', e); }
+  }
+
+  events.forEach(e => {
+    const sid = e.sid;
+    if (!isStudent(sid)) return;
+    const d = e.data || {};
+    const t = _ptsParseTime_(e.time) || now;
+
+    if (e.kind === 'attempt') {
+      if (isOldAsg(d.asg)) return;   // 밀린 과제: 포인트 없음
+      const answers = (d.answers || []).filter(a => a && a.qid && String(a.sel || '').trim());
+      if (d.weekly) {
+        // 주간평가: 첫 제출 점수로 한 번
+        const k = d.asg + '\u0001주간평가';
+        if (!d.asg || aIdx[k] != null) return;
+        const total = Number(d.total) || answers.length;
+        if (!total) return;
+        const right = answers.filter(a => _ptsGrade_(qMap[a.qid], a.sel) === true).length;
+        const score = Math.round(right / total * 100);
+        const pts = (POINT_WEEKLY_TABLE.find(x => score >= x[0]) || [0, 0])[1];
+        aIdx[k] = aRows.length + aNew.length;
+        aNew.push([d.asg, sid, '주간평가', pts, _nowIso(), score + '점']);
+        add(sid, '주간평가', pts, { score: score }, d.asg);
+        return;
+      }
+      let first = 0, fix = 0;
+      answers.forEach(a => {
+        const q = qMap[a.qid];
+        if (!q) return;
+        const ok = _ptsGrade_(q, a.sel) === true;
+        const key = sid + '\u0001' + a.qid;
+        const i = qIdx[key];
+        const rec = i != null ? qRows[i] : null;
+        const recT = rec ? _ptsParseTime_(_npStr_(rec[2])) : null;
+        if (!rec || !recT || t.getTime() - recT.getTime() > dedupMs) {
+          // 30일 안에 푼 적 없음 → 첫 시도
+          const row = [sid, a.qid, Utilities.formatDate(t, _ptsTz_(), 'yyyy-MM-dd HH:mm:ss'), ok ? 2 : 0, ok ? _nowIso() : ''];
+          if (i != null) { qRows[i] = row; qDirty.add(i); } else { qIdx[key] = qRows.length; qRows.push(row); qDirty.add(qRows.length - 1); }
+          if (ok) first++;
+        } else if (ok && _npNum_(rec[3]) === 0) {
+          // 30일 안에 틀렸던 문제를 맞힘 → 오답 수정 (한 번만)
+          rec[3] = 1; rec[4] = _nowIso(); qDirty.add(i);
+          fix++;
+        }
+      });
+      if (first || fix) add(sid, '문제', first * 2 + fix, { first: first, fix: fix });
+      return;
+    }
+
+    if (e.kind === 'asg_done') {
+      if (d.weekly || !d.asg || isOldAsg(d.asg)) return;
+      const k = d.asg + '\u0001완료보너스';
+      if (aIdx[k] != null) return;
+      const pts = (Number(d.total) || 0) * 2;
+      aIdx[k] = aRows.length + aNew.length;
+      aNew.push([d.asg, sid, '완료보너스', pts, _nowIso(), d.manual ? '선생님 완료 처리' : '']);
+      if (pts) add(sid, '과제완료', pts, { n: 1 });
+      return;
+    }
+
+    if (e.kind === 'vocab_add') {
+      const w = String(d.word || '').toLowerCase().trim();
+      if (!w) return;
+      const key = sid + '\u0001' + w, i = wIdx[key];
+      const row = [sid, w, Utilities.formatDate(t, _ptsTz_(), 'yyyy-MM-dd HH:mm:ss'), ''];
+      if (i != null) { wRows[i] = row; wDirty.add(i); } else { wIdx[key] = wRows.length; wRows.push(row); wDirty.add(wRows.length - 1); }
+      add(sid, '단어', 1, { add: 1 });
+      return;
+    }
+
+    if (e.kind === 'memo' || e.kind === 'unmemo') {
+      let n = 0;
+      (d.words || []).forEach(raw => {
+        const w = String(raw || '').toLowerCase().trim();
+        if (!w) return;
+        const key = sid + '\u0001' + w;
+        let i = wIdx[key];
+        if (e.kind === 'memo') {
+          const rec = i != null ? wRows[i] : null;
+          const regT = rec ? _ptsParseTime_(_npStr_(rec[2])) : null;
+          // 포인트 시작 전에 등록한 단어(기록 없음)는 바로 인정
+          if (regT && t.getTime() - regT.getTime() < POINT_WORD_WAIT_HOURS * 3600000) return;
+          if (rec && _npStr_(rec[3]) === 'Y') return;
+          if (i == null) { i = wIdx[key] = wRows.length; wRows.push([sid, w, '', '']); }
+          wRows[i][3] = 'Y'; wDirty.add(i); n++;
+        } else {
+          if (i == null || _npStr_(wRows[i][3]) !== 'Y') return;   // 포인트를 받은 암기만 되돌림
+          wRows[i][3] = ''; wDirty.add(i); n++;
+        }
+      });
+      if (n && e.kind === 'memo') add(sid, '단어', n, { memo: n });
+      if (n && e.kind === 'unmemo') add(sid, '단어차감', -n, { n: n });
+      return;
+    }
+  });
+
+  // 상태 시트 저장 (바뀐 줄만 / 새 줄은 뒤에)
+  _ptsSaveRows_(qSh, qRows, qDirty, 5);
+  _ptsSaveRows_(wSh, wRows, wDirty, 4);
+  if (aNew.length) _npAppend_(aSh, aNew);
+  // 포인트내역
+  _ptsWriteLedger_(_ptsMerge_(items), _npMembers_().list);
+}
+// 같은 학생·종류 적립을 합칩니다(주간평가는 과제별로 따로).
+function _ptsMerge_(items) {
+  const map = {}, out = [];
+  items.forEach(it => {
+    const k = it.sid + '|' + it.cat + '|' + (it.key || '');
+    if (!map[k]) { map[k] = { sid: it.sid, cat: it.cat, key: it.key, delta: 0, counts: {} }; out.push(map[k]); }
+    map[k].delta += it.delta;
+    Object.keys(it.counts || {}).forEach(c => { map[k].counts[c] = (c === 'score') ? it.counts[c] : (map[k].counts[c] || 0) + it.counts[c]; });
+  });
+  return out;
+}
+function _ptsSaveRows_(sh, rows, dirty, width) {
+  if (!dirty.size) return;
+  const existing = sh.getLastRow() - 1;
+  const idxs = [...dirty].sort((a, b) => a - b);
+  const olds = idxs.filter(i => i < existing), news = idxs.filter(i => i >= existing);
+  // 기존 줄: 연속 구간끼리 묶어 씁니다
+  let s = 0;
+  while (s < olds.length) {
+    let e = s;
+    while (e + 1 < olds.length && olds[e + 1] === olds[e] + 1) e++;
+    const block = olds.slice(s, e + 1).map(i => rows[i].slice(0, width).map(_npCell_));
+    sh.getRange(olds[s] + 2, 1, block.length, width).setNumberFormat('@').setValues(block);
+    s = e + 1;
+  }
+  if (news.length) _npAppend_(sh, news.map(i => rows[i].slice(0, width)));
+}
+
+/* ---------- 매일 0시대 예약 실행: 지연 차감 · 오래된 기록 정리 · 월요일 주간 요약 ---------- */
+function pointsDaily() {
+  if (!POINT_AUTO_ON) return;
+  try { pointsProcessQueue(); } catch (e) { console.error(e); }
+  const today = _ptsDay_();
+  const members = _npMembers_().list;
+  const active = {};
+  members.forEach(m => { if (m.role === 'student') active[m.id] = m; });   // 휴원('inactive')은 제외
+
+  // 1) 지연 차감: 배부일+7일이 지났는데 '완료'가 아닌 과제 → 하루 -1 (같은 날 두 번 안 함, POINT_LATE_START부터)
+  const asgSh = _logSS().getSheetByName('과제');
+  const aSh = _ptsSheet_(PTS_A_SHEET, ['과제ID', '학생ID', '종류', '포인트', '시각', '메모']);
+  const aRows = _npRows_(aSh, 6);
+  const lateIdx = {};
+  aRows.forEach((r, i) => { if (_npStr_(r[2]) === '지연') lateIdx[_npStr_(r[0])] = i; });
+  const items = [], aNew = [], aUpd = [];
+  if (asgSh && asgSh.getLastRow() > 1 && today >= POINT_LATE_START) {
+    const rows = asgSh.getRange(2, 1, asgSh.getLastRow() - 1, 12).getValues();
+    const nowT = _ptsParseTime_(today + ' 00:00:00').getTime();
+    rows.forEach(r => {
+      const id = String(r[0] || '').trim(), sid = String(r[7] || '').trim();
+      const given = r[1] instanceof Date ? _ptsDay_(r[1]) : String(r[1] || '').slice(0, 10);
+      if (!id || !active[sid] || !given) return;
+      if (String(r[8] || '').toUpperCase() === 'TRUE') return;          // 주간평가 제외
+      if (String(r[6] || '').trim() === '완료') return;
+      const gT = _ptsParseTime_(given + ' 00:00:00');
+      if (!gT || nowT - gT.getTime() <= POINT_LATE_GRACE_DAYS * 86400000) return;
+      const i = lateIdx[id];
+      if (i != null && _npStr_(aRows[i][5]) === today) return;            // 오늘 이미 차감
+      if (i != null) { aRows[i][3] = _npNum_(aRows[i][3]) - 1; aRows[i][4] = _nowIso(); aRows[i][5] = today; aUpd.push(i); }
+      else { aNew.push([id, sid, '지연', -1, _nowIso(), today]); lateIdx[id] = -1; }
+      items.push({ sid: sid, cat: '지연', delta: -1, counts: { n: 1 } });
+    });
+  }
+  aUpd.forEach(i => aSh.getRange(i + 2, 1, 1, 6).setNumberFormat('@').setValues([aRows[i].map(_npCell_)]));
+  if (aNew.length) _npAppend_(aSh, aNew);
+  _ptsWriteLedger_(_ptsMerge_(items), members);
+
+  // 2) 30일 지난 문제 기록 정리 (시트가 커지지 않게)
+  try {
+    const qSh = _ptsSheet_(PTS_Q_SHEET, ['학생ID', 'QID', '첫시도시각', '인정점수', '인정시각']);
+    const qRows = _npRows_(qSh, 5);
+    const cut = Date.now() - (POINT_DEDUP_DAYS + 1) * 86400000;
+    const keep = qRows.filter(r => { const t = _ptsParseTime_(_npStr_(r[2])); return t && t.getTime() >= cut; });
+    if (keep.length < qRows.length) {
+      _withLock_(() => {
+        qSh.getRange(2, 1, qRows.length, 5).clearContent();
+        if (keep.length) qSh.getRange(2, 1, keep.length, 5).setNumberFormat('@').setValues(keep.map(r => r.map(_npCell_)));
+      });
+    }
+  } catch (e) { console.error('pts prune', e); }
+
+  // 3) 월요일: 지난주 자동 적립 요약 알림
+  if (Number(Utilities.formatDate(new Date(), _ptsTz_(), 'u')) === 1) {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty('PTS_WEEKNOTE_' + today)) return;
+    props.setProperty('PTS_WEEKNOTE_' + today, '1');
+    const lastStart = _ptsDay_(new Date(Date.now() - 7 * 86400000));
+    const sum = {};
+    _npRows_(_npSheet_(NP_POINT_SHEET, NP_POINT_HEADERS), NP_POINT_HEADERS.length).forEach(r => {
+      const ref = _npStr_(r[10]).split('|');
+      if (ref[0] !== 'AUTO' || ref[1] < lastStart || ref[1] >= today || _npStr_(r[11]) === 'Y') return;
+      const sid = _npStr_(r[2]);
+      const s = sum[sid] = sum[sid] || { plus: 0, weekly: 0, minus: 0 };
+      const v = _npNum_(r[4]);
+      if (ref[2] === '주간평가') s.weekly += v; else if (v < 0) s.minus += v; else s.plus += v;
+    });
+    const actor = { id: 'system', name: '자동' };
+    const notes = Object.keys(sum).filter(sid => active[sid]).map(sid => {
+      const s = sum[sid];
+      const body = '온라인 학습 적립: +' + s.plus + 'pt (한도 ' + POINT_WEEKLY_CAP + 'pt)'
+        + (s.weekly ? '\n주간평가: +' + s.weekly + 'pt' : '') + (s.minus ? '\n차감: ' + s.minus + 'pt' : '')
+        + '\n합계: ' + _fmtPt_(s.plus + s.weekly + s.minus) + '\n이번 주 한도가 새로 시작됐어요. 화이팅!';
+      return _personalNoticeRow_(actor, sid, '지난주 포인트 요약', body);
+    });
+    if (notes.length) _withLock_(() => _npAppend_(_npSheet_(NP_NOTICE_SHEET, NP_NOTICE_HEADERS), notes));
+  }
+}
+
+/* ---------- 학생 화면용: 이번 주 받은 양 ---------- */
+function _ptsWeekInfo_(studentId) {
+  const week = _ptsWeekStart_();
+  let earned = 0, weekly = 0;
+  _npRows_(_npSheet_(NP_POINT_SHEET, NP_POINT_HEADERS), NP_POINT_HEADERS.length).forEach(r => {
+    if (_npStr_(r[2]) !== studentId || _npStr_(r[11]) === 'Y') return;
+    const ref = _npStr_(r[10]).split('|');
+    if (ref[0] !== 'AUTO' || ref[1] < week) return;
+    if (PTS_CAPPED[ref[2]]) earned += _npNum_(r[4]);
+    else if (ref[2] === '주간평가') weekly += _npNum_(r[4]);
+  });
+  return { on: POINT_AUTO_ON, earned: earned, cap: POINT_WEEKLY_CAP, weekly: weekly, weekStart: week };
+}
+
+/* ---------- 관리자: 서술형 등으로 끝내 완료가 안 되는 과제를 '완료' 처리 ---------- */
+function adminCompleteAssignments(ids) {
+  _guardDirect_();   // 관리자 인증은 doPost(ADMIN_API_)에서 확인
+  const want = new Set((Array.isArray(ids) ? ids : []).map(s => String(s || '').trim()).filter(Boolean));
+  if (!want.size) throw new Error('완료 처리할 과제를 고르십시오.');
+  const done = [];
+  _withLock_(() => {
+    const sh = _assignmentSheet_();
+    const last = sh.getLastRow();
+    if (last < 2) return;
+    const rows = sh.getRange(2, 1, last - 1, 12).getValues();
+    rows.forEach((r, i) => {
+      const id = String(r[0] || '').trim();
+      if (!want.has(id)) return;
+      if (String(r[6] || '').trim() !== '완료') sh.getRange(i + 2, 7).setValue('완료');
+      sh.getRange(i + 2, 12).setValue('Y');   // 선생님 완료 표시(다시 제출해도 '미완료'로 돌아가지 않음)
+      done.push({ id: id, sid: String(r[7] || '').trim(), total: parseInt(r[4], 10) || 0, weekly: String(r[8] || '').toUpperCase() === 'TRUE' });
+    });
+  });
+  done.forEach(a => _ptsEnqueue_(a.sid, 'asg_done', { asg: a.id, total: a.total, weekly: a.weekly, manual: true }));
+  try { pointsProcessQueue(); } catch (e) { console.error(e); }
+  return { ok: true, count: done.length, ids: done.map(a => a.id) };
+}
+
+/* ---------- 처음 한 번: 예약 실행 켜기 (Apps Script 편집기에서 pointsSetup 실행) ---------- */
+function pointsSetup() {
+  ScriptApp.getProjectTriggers().forEach(t => {
+    const f = t.getHandlerFunction();
+    if (f === 'pointsProcessQueue' || f === 'pointsDaily') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('pointsProcessQueue').timeBased().everyMinutes(10).create();
+  ScriptApp.newTrigger('pointsDaily').timeBased().atHour(0).nearMinute(5).everyDays(1).inTimezone(_ptsTz_()).create();
+  return '예약 실행을 켰습니다: 10분마다 포인트 처리, 매일 0시대 지연 차감·주간 요약';
+}

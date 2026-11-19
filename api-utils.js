@@ -9,6 +9,21 @@ function _bridgeAuth() {
   } catch (e) { return null; }
 }
 
+// 자동 포인트: 답안 제출·단어 저장·단어 시험 저장이 끝나면 서버에 '포인트 계산'을 한 번 알립니다.
+// (기다리지 않고, 몇 초 안의 여러 번은 한 번으로 묶습니다. 못 보내도 서버가 10분마다 처리합니다)
+const _PTS_KICK_FUNCS = { logAttempt: 1, addWordToFormAndSheet: 1, setWordsMemorized: 1 };
+let _ptsKickTimer = null;
+function _ptsKickAfter(func) {
+  if (!_PTS_KICK_FUNCS[func]) return;
+  clearTimeout(_ptsKickTimer);
+  _ptsKickTimer = setTimeout(() => {
+    try {
+      fetch(GAS_WEB_APP_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ func: 'pointsKick', args: [], auth: null }) }).catch(() => {});
+    } catch (e) {}
+  }, 3000);
+}
+
 if (typeof google === 'undefined' || !google.script) {
   function createGasRunner(successHandler, failureHandler) {
     return new Proxy({}, {
@@ -29,6 +44,7 @@ if (typeof google === 'undefined' || !google.script) {
           .then(res => res.json())
           .then(res => {
             if (res && res.ok) {
+              _ptsKickAfter(prop);
               // 문항이 들어 있는 응답이면 img 폴더의 '문항ID.jpg'를 찾아 box1에 붙인 뒤 넘깁니다.
               attachQuestionImages(res.data).then(() => {
                 if (typeof successHandler === 'function') successHandler(res.data);

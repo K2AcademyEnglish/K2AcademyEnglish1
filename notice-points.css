@@ -160,3 +160,12 @@ textarea.np-input { resize: vertical; line-height: 1.5; }
 .np-step-val { min-width: 92px; text-align: center; font-size: 15px; color: #78350f; line-height: 1.2; padding: 0 6px; }
 .np-step-val b { font-size: 22px; margin-right: 2px; }
 .np-step-val small { display: block; font-size: 11px; color: #92400e; }
+
+/* 이번 주 온라인 학습 포인트 막대 (자동 적립, 주간 한도) */
+.np-week { margin: 10px 0 14px; padding: 12px 14px; border: 1px solid #fde68a; background: #fffbeb; border-radius: 12px; }
+.np-week-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: #78350f; }
+.np-week-head b { font-size: 15px; color: #92400e; }
+.np-week-track { height: 8px; margin-top: 6px; background: #fde68a; border-radius: 999px; overflow: hidden; }
+.np-week-fill { height: 100%; background: linear-gradient(90deg, #f59e0b, #d97706); border-radius: 999px; transition: width .3s; }
+.np-week-fill.full { background: linear-gradient(90deg, #10b981, #059669); }
+.np-week-sub { margin-top: 5px; font-size: 11px; color: #92400e; }

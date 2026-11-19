@@ -174,6 +174,7 @@
         </div>
         <button type="button" class="np-btn np-btn-gold" data-np="open:points">교환권 신청 · 내역</button>
       </div>
+      ${weekBarHTML(h.week)}
       ${(h.tarot && h.tarot.on && window.K2Tarot) ? `<button type="button" class="np-tarot-btn" data-tarot-open>🔮 오늘의 타로 <small>${num(h.tarot.cost)}pt</small></button>` : ''}
       ${latest ? `<button type="button" class="np-home-notice ${latest.read ? '' : 'unread'}" data-np="open:notices">
           <span>${latest.important ? '📌' : '📢'}</span>
@@ -391,6 +392,18 @@
       </div>`).join('') + `</div>`;
   }
 
+  // 이번 주 온라인 학습 포인트(월요일 0시 시작, 한도 300) 막대
+  function weekBarHTML(w) {
+    if (!w || !w.on) return '';
+    const cap = w.cap || 300, got = Math.min(cap, Math.max(0, w.earned || 0));
+    const pct = Math.round(got / cap * 100);
+    return `<div class="np-week">
+        <div class="np-week-head"><span>이번 주 온라인 학습</span><b>${num(got)} / ${num(cap)}pt</b></div>
+        <div class="np-week-track"><div class="np-week-fill${got >= cap ? ' full' : ''}" style="width:${pct}%"></div></div>
+        <div class="np-week-sub">${got >= cap ? '이번 주 한도를 모두 채웠어요 🎉 ' : ''}월요일 0시에 새로 시작${w.weekly ? ` · 주간평가 +${num(w.weekly)}pt(한도 별도)` : ''}</div>
+      </div>`;
+  }
+
   function viewMyPoints() {
     const d = S.myPoints;
     if (!d) return loadingHTML();
@@ -407,6 +420,7 @@
         <div class="np-balance-value">${num(p.balance)}<small>pt</small></div>
         ${p.pending ? `<div class="np-balance-sub">교환 신청 중 ${num(p.pending)}pt · 신청 가능 ${num(available)}pt</div>` : ''}
       </div>
+      ${weekBarHTML(d.week)}
 
       <div class="np-section">
         <div class="np-section-title">🎟️ 교환권 신청</div>

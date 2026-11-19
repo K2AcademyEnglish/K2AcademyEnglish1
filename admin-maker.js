@@ -1118,11 +1118,15 @@ function renderHistoryDeleteBar() {
   const n = HISTORY_SELECTED.size;
   bar.style.display = n ? 'flex' : 'none';
   if (!n) return;
+  const notDone = [...HISTORY_SELECTED].filter(id => { const r = ADMIN_HISTORY_CACHE.find(x => x.id === id); return r && r.displayStatus !== '완료'; }).length;
   bar.innerHTML = `<b>${n}개 과제 선택</b>
+    ${notDone ? `<button type="button" id="btnHistoryDoneSel" title="서술형 등으로 끝내 완료가 안 되는 과제를 완료로 바꿉니다" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:1px solid #059669; background:#059669; color:#fff; border-radius:6px; cursor:pointer;">✅ 완료 처리 (${notDone})</button>` : ''}
     <button type="button" id="btnHistoryDelSel" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:1px solid #dc2626; background:#dc2626; color:#fff; border-radius:6px; cursor:pointer;">🗑 선택 삭제</button>
     <button type="button" id="btnHistorySelAll" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:1px solid #d1d5db; background:#fff; color:#374151; border-radius:6px; cursor:pointer;">보이는 과제 모두 선택</button>
     <button type="button" id="btnHistorySelClear" style="width:auto; margin:0; padding:5px 10px; font-size:12px; border:0; background:none; color:#6b7280; cursor:pointer;">선택 해제</button>`;
   document.getElementById('btnHistoryDelSel').onclick = () => confirmDeleteAssignments([...HISTORY_SELECTED]);
+  const doneBtn = document.getElementById('btnHistoryDoneSel');
+  if (doneBtn) doneBtn.onclick = () => confirmCompleteAssignments([...HISTORY_SELECTED]);
   document.getElementById('btnHistorySelAll').onclick = () => {
     document.querySelectorAll('#historyTbody .chk-history-pick').forEach(c => { c.checked = true; c.dispatchEvent(new Event('change')); });
   };
@@ -1140,6 +1144,31 @@ function confirmDeleteAssignments(ids) {
     () => runDeleteAssignments(rows.map(r => r.id), !!(logsBox && logsBox.checked))
   );
   const logsBox = document.getElementById('chkDelAsgLogs');
+}
+// 선생님 완료 처리: 서술형 등으로 끝내 '완료'가 안 되는 과제를 완료로 바꿉니다.
+// 완료 보너스(문항 수 × 2pt)가 한 번 들어가고, 지연 차감이 멈춥니다. 학생이 다시 제출해도 완료로 남습니다.
+function confirmCompleteAssignments(ids) {
+  const rows = ids.map(id => ADMIN_HISTORY_CACHE.find(r => r.id === id)).filter(r => r && r.displayStatus !== '완료');
+  if (!rows.length) { showToast('완료 처리할 과제가 없습니다. (이미 완료)', 'info'); return; }
+  const list = rows.slice(0, 5).map(r => `· ${escapeHTML(r.date)} ${escapeHTML(r.student)} — ${sanitizeInlineHTML(r.title)}`).join('<br>') + (rows.length > 5 ? `<br>· 외 ${rows.length - 5}개` : '');
+  showCustomConfirm(
+    `<b>과제 ${rows.length}개를 완료 처리할까요?</b><br><div style="text-align:left; font-size:13px; color:#4b5563; margin:8px 0; max-height:140px; overflow:auto;">${list}</div>` +
+    `<span style="font-size:13px; color:#4b5563;">학생에게 완료 보너스(문항 수 × 2pt)가 들어가고 지연 차감이 멈춥니다.<br>(주간평가는 보너스 없이 완료만 됩니다)</span>`,
+    () => {
+      const user = CURRENT_USER;
+      const loadEl = document.getElementById('loadingOverlay');
+      if (loadEl) { loadEl.querySelector('.loading-text').innerHTML = `과제 ${rows.length}개를 완료 처리하는 중...`; loadEl.classList.add('active'); }
+      gsCall('adminCompleteAssignments', [rows.map(r => r.id)]).then(res => {
+        if (CURRENT_USER !== user) return;
+        const done = new Set((res && res.ids) || []);
+        ADMIN_HISTORY_CACHE.forEach(r => { if (done.has(r.id)) r.displayStatus = '완료'; });
+        ['adminHistory:3m', 'adminHistory:all'].forEach(k => swrInvalidate(k, user.id));
+        renderHistoryUI();
+        showToast(`과제 ${done.size}개를 완료 처리했습니다.`, 'success');
+      }).catch(err => {
+        showCustomAlert('완료 처리 실패: ' + escapeHTML(String(err && err.message || err)) + '<br>서버(Code.gs)를 새 버전으로 배포했는지 확인해 주십시오.');
+      }).finally(() => { if (loadEl) loadEl.classList.remove('active'); });
+    });
 }
 function runDeleteAssignments(ids, withLogs) {
   const user = CURRENT_USER;
