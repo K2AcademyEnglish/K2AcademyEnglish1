@@ -250,6 +250,10 @@ function normalizeHyphens(str) {
       // 1. 입력을 안전한 문자열로 변환
   var raw = normalizeHyphens(input).trim().replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
 
+  // 1-1. 영어 문장 중간의 줄바꿈(PDF에서 가져올 때 남은 것)은 띄어쓰기로 잇습니다.
+  //      줄 끝이 영어 낱말(·쉼표·밑줄 태그)이고 다음 줄이 영어 소문자로 이어질 때만. 각주(*)·한글·대문자 시작 줄은 그대로.
+  raw = raw.replace(/([A-Za-z,;]|<\/(?:u|b|i)>)[ \t]*\r?\n[ \t]*(?=[a-z])/g, '$1 ');
+
   // 2. 먼저 일반적인 이스케이프 처리를 수행 (표 내부의 태그까지 다 글자로 바뀜)
   var s = escapeHTML(raw.replace(/\r?\n/g, '<br>'))
           .replace(/&lt;br\s*\/?&gt;/gi, '<br>');
