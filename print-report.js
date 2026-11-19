@@ -649,20 +649,79 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
  *  3) 묶음이 한 쪽보다 크면(긴 연계 세트) 문항 하나씩 같은 규칙으로 놓고,
  *     문항 하나가 한 쪽보다 크면 그 문항만 크롬이 알아서 나누게 둡니다.
  */
-function _k2PrintOnlyCss() {
-  let css = '';
-  Array.from(document.styleSheets).forEach(sh => {
-    let rules; try { rules = sh.cssRules; } catch (e) { return; }
-    if (!rules) return;
-    Array.from(rules).forEach(r => {
-      if (r.type === CSSRule.MEDIA_RULE && /(^|[\s,])print([\s,]|$)/i.test(r.media.mediaText) && !/screen/i.test(r.media.mediaText)) {
-        Array.from(r.cssRules).forEach(ir => { if (ir.type !== CSSRule.PAGE_RULE) css += ir.cssText + '\n'; });
+/* 인쇄 환경 흉내 내기: 각 @media 조건을 "인쇄, A4 본문 폭 180mm(680px)" 기준으로 판정해서
+ * 인쇄에서 켜질 규칙은 켜고, 꺼질 규칙(화면 전용, 넓은 화면용 등)은 잠깐 끕니다. 되돌리는 함수를 돌려줍니다. */
+const K2_PRINT_W = 680, K2_PRINT_H = 1047; // A4 210x297mm - 여백(15mm 좌우, 10mm 위아래)
+function _k2MediaMatchesPrint(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return true;
+  const one = (q) => {
+    q = q.trim();
+    let neg = false;
+    if (/^not\s/.test(q)) { neg = true; q = q.slice(4).trim(); }
+    q = q.replace(/^only\s+/, '');
+    let ok = true;
+    const typeM = q.match(/^([a-z]+)(\s|$)/);
+    if (typeM && typeM[1] !== 'and') {
+      const ty = typeM[1];
+      if (ty === 'print' || ty === 'all') ok = true;
+      else if (ty === 'screen' || ty === 'speech') ok = false;
+      else return null;
+    }
+    const feats = q.match(/\([^)]*\)/g) || [];
+    for (const f of feats) {
+      const m = f.match(/^\(\s*(min-|max-)?(width|height)\s*:\s*([\d.]+)\s*(px|em|rem)?\s*\)$/);
+      if (m) {
+        const v = parseFloat(m[3]) * (m[4] === 'em' || m[4] === 'rem' ? 16 : 1);
+        const cur = m[2] === 'width' ? K2_PRINT_W : K2_PRINT_H;
+        if (m[1] === 'min-' && !(cur >= v)) ok = false;
+        else if (m[1] === 'max-' && !(cur <= v)) ok = false;
+        else if (!m[1] && cur !== v) ok = false;
+        continue;
+      }
+      const o = f.match(/^\(\s*orientation\s*:\s*(portrait|landscape)\s*\)$/);
+      if (o) { if (o[1] !== 'portrait') ok = false; continue; }
+      return null; // 모르는 조건이면 손대지 않음
+    }
+    return neg ? !ok : ok;
+  };
+  let any = false;
+  for (const part of t.split(',')) {
+    const r = one(part);
+    if (r === null) return null;
+    if (r) any = true;
+  }
+  return any;
+}
+function _k2EmulatePrintMedia() {
+  const undo = [];
+  const walk = (rules) => {
+    Array.from(rules || []).forEach(r => {
+      if (r.type === CSSRule.MEDIA_RULE) {
+        const orig = r.media.mediaText;
+        const want = _k2MediaMatchesPrint(orig);
+        if (want !== null) {
+          try { r.media.mediaText = want ? 'all' : 'not all'; undo.push(() => { r.media.mediaText = orig; }); } catch (e) {}
+        }
+        walk(r.cssRules);
+      } else if (r.cssRules && r.type !== CSSRule.PAGE_RULE) {
+        walk(r.cssRules); // @supports, @layer 등
       }
     });
+  };
+  Array.from(document.styleSheets).forEach(sh => {
+    const mt = sh.media && sh.media.mediaText;
+    if (mt) {
+      const want = _k2MediaMatchesPrint(mt);
+      if (want !== null && sh.disabled === want) { const d = sh.disabled; sh.disabled = !want; undo.push(() => { sh.disabled = d; }); }
+    }
+    let rules; try { rules = sh.cssRules; } catch (e) { return; }
+    walk(rules);
   });
-  return css;
+  return () => { for (let i = undo.length - 1; i >= 0; i--) { try { undo[i](); } catch (e) {} } };
 }
 function k2PaginateExam(printZone) {
+  let restoreMedia = null;
   try {
     const wrap = printZone && printZone.querySelector('.exam-body-wrap');
     if (!wrap) return;
@@ -678,9 +737,7 @@ function k2PaginateExam(printZone) {
     const sp = spacer ? (spacer.style.getPropertyValue('--sp') || '0mm') : '0mm';
 
     // 인쇄용 스타일을 잠깐 화면에 적용 (같은 동기 실행 안에서 지우므로 화면에는 보이지 않습니다)
-    const measure = document.createElement('style');
-    measure.textContent = _k2PrintOnlyCss();
-    document.head.appendChild(measure);
+    restoreMedia = _k2EmulatePrintMedia();
     wrap.classList.add('k2-paged', 'k2-measuring');
 
     // 기존 쪽/단 비우기
@@ -705,7 +762,7 @@ function k2PaginateExam(printZone) {
       pages.forEach(p => p.remove());
       const c = document.createElement('div'); c.className = 'exam-columns';
       blocks.forEach(b => c.appendChild(b)); wrap.appendChild(c);
-      measure.remove();
+      restoreMedia();
       return;
     }
     // 한 단보다 긴 상자(긴 지문 등)는 '단 안에 통째로' 규칙을 풀어 줍니다. 안 그러면 크롬이 어디에도 못 놓습니다.
@@ -764,8 +821,9 @@ function k2PaginateExam(printZone) {
     while (pages.length > 1 && pages[pages.length - 1].querySelector('.exam-columns').children.length === 0) pages.pop().remove();
 
     wrap.classList.remove('k2-measuring');
-    measure.remove();
+    restoreMedia();
   } catch (e) {
+    try { restoreMedia && restoreMedia(); } catch (e2) {}
     console.warn('쪽 나누기 실패, 기본 흐름으로 인쇄합니다.', e);
   }
 }
