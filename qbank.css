@@ -131,11 +131,11 @@ html body #qbankPage button.qb-seg-btn {
 }
 html body #qbankPage button.qb-seg-btn.active { background: #1e40af !important; color: #fff !important; }
 
-/* 인쇄 크기 미리보기: 과제 출제 인쇄와 같은 값 (A4 좌우 여백 15mm · 2단 · 단 간격 10mm → 한 단 85mm) */
+/* 인쇄 크기 미리보기: 과제 출제 인쇄와 같은 값 (A4 좌우 여백 10mm · 2단 · 단 간격 8mm → 한 단 91mm) */
 #qbankPage .qb-paper-note { font-size: 11px; color: #64748b; margin: 2px 0 6px; }
 #qbankPage .qb-paper { background: #e5e7eb; padding: 10px; border-radius: 8px; overflow-x: auto; }
 #qbankPage .qb-print {
-  width: 85mm; margin: 0 auto; background: #fff; padding: 5mm; box-sizing: content-box; box-shadow: 0 1px 4px rgba(0,0,0,.18);
+  width: 91mm; margin: 0 auto; background: #fff; padding: 5mm; box-sizing: content-box; box-shadow: 0 1px 4px rgba(0,0,0,.18);
   color: #000; font-family: "Malgun Gothic", "맑은 고딕", sans-serif;
 }
 #qbankPage .qb-print .exam-q-block { margin: 0; }

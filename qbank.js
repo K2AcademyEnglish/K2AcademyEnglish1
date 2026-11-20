@@ -2172,7 +2172,7 @@ function qbRenderPreview() {
     try { ph = qbPrintHtml(key); } catch (e) { ph = '<div class="qb-warn">인쇄 미리보기를 만들지 못했습니다: ' + qbEsc(e.message) + '</div>'; }
     const ans0 = String(val(15) || '').trim();
     box.innerHTML = `<div class="qb-prev-meta">${qbEsc(val(1) || '출처 없음')} · ${qbEsc(val(2) || '유형 없음')} · 난이도 ${qbEsc(val(4) || '-')}</div>
-      <div class="qb-paper-note">A4 2단 시험지의 한 단(85mm)과 같은 너비·글자 크기입니다. 줄이 넘어가는 위치가 인쇄물과 같습니다.</div>
+      <div class="qb-paper-note">A4 2단 시험지의 한 단(91mm)과 같은 너비·글자 크기입니다. 줄이 넘어가는 위치가 인쇄물과 같습니다.</div>
       <div class="qb-paper"><div class="qb-print">${ph}</div></div>` +
       (QB.showAns ? `<div class="qb-prev-ans"><b>정답</b> ${/^[1-5]$/.test(ans0) ? '①②③④⑤'[Number(ans0) - 1] : qbEsc(ans0 || '(없음)')}</div>` +
         (val(16) ? `<div class="qb-prev-exp"><b>해설</b><div>${sanitizeInlineHTML(val(16))}</div></div>` : '') : '');

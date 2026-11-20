@@ -369,7 +369,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
     }
 
     @media print {
-      @page { size: A4; margin: 10mm 15mm 10mm 15mm !important; }
+      @page { size: A4; margin: 10mm 10mm 10mm 10mm !important; } /* 좌우 10mm: 한 줄 글자 수를 수능 시험지(약 58~60자)에 맞춤 */
       
       html, body { height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; overflow: visible !important; display: block !important; background: #fff !important; }
       #printSection { display: block !important; position: static !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
@@ -449,7 +449,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
 
       .exam-columns {
           column-count: 2 !important;
-          column-gap: 10mm !important;
+          column-gap: 8mm !important;
           column-rule: 0.5px solid #ccc !important;
           margin-bottom: 0 !important;
           padding-bottom: 0 !important;
@@ -591,7 +591,7 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
     @media print {
       #printSection .exam-body-wrap.k2-paged { padding: 0 !important; -webkit-box-decoration-break: slice !important; box-decoration-break: slice !important; }
       #printSection .k2-paged .wk-first-spacer { display: none !important; }
-      #printSection .exam-page { width: 180mm; height: 276mm; box-sizing: border-box; padding: 18mm 0 12mm; break-after: page; page-break-after: always; overflow: visible; position: relative; }
+      #printSection .exam-page { width: 190mm; height: 276mm; box-sizing: border-box; padding: 18mm 0 12mm; break-after: page; page-break-after: always; overflow: visible; position: relative; }
       #printSection .exam-page:last-child { break-after: auto; page-break-after: auto; }
       #printSection .exam-page.first { padding-top: calc(18mm + var(--sp, 0mm)); }
       #printSection .exam-page > .exam-columns { height: 100% !important; column-fill: auto !important; }
@@ -649,9 +649,9 @@ function renderQuestionsForPrint(qs, pageTitle, dateInput, studentName, qrQids, 
  *  3) 묶음이 한 쪽보다 크면(긴 연계 세트) 문항 하나씩 같은 규칙으로 놓고,
  *     문항 하나가 한 쪽보다 크면 그 문항만 크롬이 알아서 나누게 둡니다.
  */
-/* 인쇄 환경 흉내 내기: 각 @media 조건을 "인쇄, A4 본문 폭 180mm(680px)" 기준으로 판정해서
+/* 인쇄 환경 흉내 내기: 각 @media 조건을 "인쇄, A4 본문 폭 190mm(718px)" 기준으로 판정해서
  * 인쇄에서 켜질 규칙은 켜고, 꺼질 규칙(화면 전용, 넓은 화면용 등)은 잠깐 끕니다. 되돌리는 함수를 돌려줍니다. */
-const K2_PRINT_W = 680, K2_PRINT_H = 1047; // A4 210x297mm - 여백(15mm 좌우, 10mm 위아래)
+const K2_PRINT_W = 718, K2_PRINT_H = 1047; // A4 210x297mm - 여백(10mm 좌우, 10mm 위아래)
 function _k2MediaMatchesPrint(text) {
   const t = String(text || '').trim().toLowerCase();
   if (!t) return true;
@@ -720,6 +720,42 @@ function _k2EmulatePrintMedia() {
   });
   return () => { for (let i = undo.length - 1; i >= 0; i--) { try { undo[i](); } catch (e) {} } };
 }
+/* 같은 단에 두고 싶은 조각끼리(제목→지문, 지문→선택지) 갈라졌으면 앞쪽을 다음 단 맨 위로 보냅니다. */
+const K2_UNIT_SEL = '.exam-q-range-title, .exam-q-id, .exam-q-title-row, .exam-passage, .exam-q-box, .exam-options';
+function _k2KeepTogether(cols) {
+  if (!cols) return;
+  const overflow = () => cols.scrollWidth > cols.clientWidth + 2;
+  if (overflow()) return;
+  const colH = cols.clientHeight;
+  const half = cols.clientWidth / 2;
+  const colOf = (el) => Math.floor((el.getBoundingClientRect().left - cols.getBoundingClientRect().left + 2) / half);
+  const isHead = (el) => el.matches('.exam-q-range-title, .exam-q-id, .exam-q-title-row');
+  const isBox = (el) => el.matches('.exam-passage, .exam-q-box');
+  const glued = (a, b) => isHead(a) || (isBox(a) && b.matches('.exam-options'));
+  const tooTall = (el) => el.offsetHeight > colH - 30;
+  Array.from(cols.querySelectorAll('.exam-chunk')).forEach(chunk => {
+    for (let guard = 0; guard < 6; guard++) {
+      const units = Array.from(chunk.querySelectorAll(K2_UNIT_SEL)).filter(u => !u.parentElement.closest(K2_UNIT_SEL));
+      let moved = false;
+      for (let i = 0; i + 1 < units.length; i++) {
+        const a = units[i], b = units[i + 1];
+        if (!glued(a, b) || tooTall(a) || tooTall(b)) continue;
+        const ca = colOf(a);
+        if (ca === colOf(b) || ca !== 0) continue; // 왼쪽 단 → 오른쪽 단으로 갈라진 경우만
+        // 같은 단에 함께 있는, 붙어 다녀야 하는 앞부분까지 함께 옮깁니다.
+        let start = i;
+        while (start > 0 && glued(units[start - 1], units[start]) && colOf(units[start - 1]) === ca) start--;
+        const first = units[start];
+        // 이미 단 맨 위면 옮겨도 소용없습니다.
+        if (first.getBoundingClientRect().top - cols.getBoundingClientRect().top < 4) continue;
+        first.style.setProperty('break-before', 'column', 'important');
+        if (overflow() || colOf(a) !== colOf(b)) { first.style.removeProperty('break-before'); continue; }
+        moved = true; break;
+      }
+      if (!moved) break;
+    }
+  });
+}
 function k2PaginateExam(printZone) {
   let restoreMedia = null;
   try {
@@ -768,7 +804,7 @@ function k2PaginateExam(printZone) {
     // 한 단보다 긴 상자(긴 지문 등)는 '단 안에 통째로' 규칙을 풀어 줍니다. 안 그러면 크롬이 어디에도 못 놓습니다.
     {
       const colH = cols.clientHeight;
-      const colW = (cols.clientWidth - 38) / 2; // 단 너비 (단 간격 10mm ≈ 38px)
+      const colW = (cols.clientWidth - 30) / 2; // 단 너비 (단 간격 8mm ≈ 30px)
       const probe = document.createElement('div');
       probe.style.cssText = 'position:absolute;left:-9999px;top:0;width:' + colW + 'px;';
       wrap.appendChild(probe);
@@ -819,6 +855,10 @@ function k2PaginateExam(printZone) {
     });
     // 빈 마지막 쪽 정리
     while (pages.length > 1 && pages[pages.length - 1].querySelector('.exam-columns').children.length === 0) pages.pop().remove();
+
+    // 4) 단 사이 다듬기: 발문(번호·제목)과 지문, 지문과 선택지가 서로 다른 단으로 갈라졌으면
+    //    여유가 있을 때만 앞부분을 다음 단으로 넘겨서 같은 단에 모읍니다. 넘쳐 버리면 원래대로 둡니다.
+    pages.forEach(pg => { if (!pg.classList.contains('oversize')) _k2KeepTogether(pg.querySelector(':scope > .exam-columns')); });
 
     wrap.classList.remove('k2-measuring');
     restoreMedia();
