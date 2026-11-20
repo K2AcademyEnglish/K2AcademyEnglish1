@@ -1434,6 +1434,8 @@ async function qbPdfKeyParse(pdfjs, data) {
     if ((m = t.match(/^(\d{1,2})\s*[~∼～\-–]\s*(\d{1,2})\s*\.\s*\[\s*출제\s*의도\s*\]\s*(.*)$/))) { cur = { kind: 'group', from: Number(m[1]), to: Number(m[2]), intent: m[3].trim(), ls: [] }; blocks.push(cur); return; }
     if ((m = t.match(/^(\d{1,2})\s*\.\s*\[\s*출제\s*의도\s*\]\s*(.*)$/))) { cur = { kind: 'item', num: Number(m[1]), intent: m[2].trim(), ls: [] }; blocks.push(cur); return; }
     if ((m = t.match(/^\[\s*(\d{1,2})\s*[~∼～\-–]\s*(\d{1,2})\s*\]\s*(.*)$/)) && !/[가-힣]{6,}/.test(m[3])) { cur = { kind: 'group', from: Number(m[1]), to: Number(m[2]), ls: [] }; blocks.push(cur); return; }
+    // 교육청 해설지의 장문 머리말: "41~42 장문의 이해" (대괄호 없음)
+    if ((m = t.match(/^(\d{1,2})\s*[~∼～\-–]\s*(\d{1,2})\s*(?:장문\s*(?:의\s*)?(?:이해|독해))?\s*$/)) && Number(m[2]) > Number(m[1]) && Number(m[2]) - Number(m[1]) <= 4) { cur = { kind: 'group', from: Number(m[1]), to: Number(m[2]), ls: [] }; blocks.push(cur); return; }
     if (cur) cur.ls.push(l);
   });
   const labeled = blocks.some(b => b.ls.some(l => /^\[(해석|풀이|해설|Words and Phrases|어휘)\]$/.test(l.text)));
