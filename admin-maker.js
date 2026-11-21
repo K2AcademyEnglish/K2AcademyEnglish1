@@ -1,87 +1,172 @@
-// [추가] 중복출제 모달 제어
-function openStudentSelectModal() {
-    const primaryId = document.getElementById('targetStudentSelect').value;
-    if(!primaryId) { 
-        showCustomAlert('먼저 학생을 선택하고 [불러오기]를 눌러 기준 학생을 정해 주십시오.'); 
-        return; 
-    }
+/* ===================== 과제출제: 대상 학생 칩 =====================
+ * - SELECTED_MULTI_STUDENTS = 고른 학생 목록. 첫 번째 학생이 '기준 학생'으로, 목록의 상태·배부·오답은 이 학생 기준입니다.
+ * - 숨겨 둔 #targetStudentSelect 값은 항상 기준 학생 ID와 같게 맞춥니다(기존 코드 호환).
+ * - 다른 학생들은 '최근 30일 배부' 확인을 위해 배부 기록(문항별 마지막 배부일)만 따로 받아 둡니다.
+ */
+const MK_RECENT_DAYS = 30;
+const MK_EXTRA_ALAST = new Map();   // 학생ID → { qid: 마지막 배부 시각(ms) }
+const MK_EXTRA_PENDING = new Map(); // 학생ID → 받는 중인 Promise
 
-    const listDiv = document.getElementById('studentSelectList');
-    listDiv.innerHTML = '';
-    
-    MANAGED_STUDENTS.forEach(student => {
-        const isPrimary = (student.id === primaryId);
-        // 이미 선택된 학생 리스트에 있거나 기준 학생이면 체크 표시
-        const isAlreadySelected = SELECTED_MULTI_STUDENTS.some(s => s.id === student.id);
-        
-        const label = document.createElement('label');
-        label.style.cssText = "display:flex; align-items:center; gap:10px; padding:10px; border:1px solid #eee; border-radius:8px; cursor:pointer;" + (isPrimary ? "background:#f3f4f6; cursor:not-allowed;" : "");
-        
-        label.innerHTML = `
-            <input type="checkbox" class="student-select-chk" 
-                value="${escapeAttr(student.id)}" data-name="${escapeAttr(student.name)}" 
-                ${isPrimary || isAlreadySelected ? 'checked' : ''} 
-                ${isPrimary ? 'disabled' : ''} 
-                style="width:18px; height:18px;">
-            <span style="font-size:15px; ${isPrimary ? 'font-weight:bold; color:#6b7280;' : ''}">
-                ${escapeHTML(student.name)} (${escapeHTML(student.id)}) ${isPrimary ? '<span style="color:#2b6cb0; font-size:12px;">[기준 학생]</span>' : ''}
-            </span>
-        `;
-        listDiv.appendChild(label);
-    });
-    document.getElementById('adminStudentSelectModal').style.display = 'flex';
+function _mkStudentName(id) {
+    const f = (MANAGED_STUDENTS || []).find(s => s.id === id);
+    return f ? f.name : id;
 }
 
-// 2. [추가] 모달 닫기 함수 (이게 없어서 취소 버튼이 안 먹혔던 것임)
+function _mkFetchExtraAlast(id) {
+    if (!id || MK_EXTRA_ALAST.has(id)) return Promise.resolve(MK_EXTRA_ALAST.get(id));
+    if (MK_EXTRA_PENDING.has(id)) return MK_EXTRA_PENDING.get(id);
+    const pr = gsCall('getStudentQuestionStats', [id, 0]).then(r => {
+        MK_EXTRA_ALAST.set(id, (r && r.alast) || {});
+        return MK_EXTRA_ALAST.get(id);
+    }).catch(err => {
+        console.warn('배부 기록을 받지 못했습니다', id, err);
+        MK_EXTRA_ALAST.set(id, {});
+        return {};
+    }).finally(() => {
+        MK_EXTRA_PENDING.delete(id);
+        if (INVENTORY_DATA.length) { renderInventoryTable(); renderCartTable(); }
+    });
+    MK_EXTRA_PENDING.set(id, pr);
+    return pr;
+}
+
+// 다른 학생들의 배부 기록을 모두 받을 때까지 기다립니다(출제 직전 확인용).
+function _mkWaitExtras() {
+    const ids = SELECTED_MULTI_STUDENTS.slice(1).map(s => s.id);
+    return Promise.all(ids.map(_mkFetchExtraAlast));
+}
+
+// 이 문항을 고른 학생들 중 누구에게 최근 30일 안에 냈는지: [{ id, name, ts }]
+function mkRecentAssignInfo(row) {
+    if (!row) return [];
+    const since = Date.now() - MK_RECENT_DAYS * 86400000;
+    const out = [];
+    SELECTED_MULTI_STUDENTS.forEach((st, i) => {
+        const ts = i === 0 ? (row.lastAssigned || 0) : ((MK_EXTRA_ALAST.get(st.id) || {})[row.qid] || 0);
+        if (ts && ts >= since) out.push({ id: st.id, name: st.name, ts: ts });
+    });
+    return out;
+}
+
+function _mkMd(ts) {
+    const d = new Date(ts);
+    return (d.getMonth() + 1) + '/' + String(d.getDate()).padStart(2, '0');
+}
+
+// 학생 선택 창: 담당 학생 전체를 체크 상자로 보여 줍니다(이미 고른 학생은 체크).
+function openStudentSelectModal() {
+    const listDiv = document.getElementById('studentSelectList');
+    if (!listDiv) return;
+    listDiv.innerHTML = '';
+    const chosen = new Set(SELECTED_MULTI_STUDENTS.map(s => s.id));
+    const primaryId = SELECTED_MULTI_STUDENTS.length ? SELECTED_MULTI_STUDENTS[0].id : '';
+    if (!MANAGED_STUDENTS || !MANAGED_STUDENTS.length) {
+        listDiv.innerHTML = '<div style="padding:20px; text-align:center; color:#6b7280;">담당 학생이 없습니다.</div>';
+    }
+    (MANAGED_STUDENTS || []).forEach(student => {
+        const label = document.createElement('label');
+        label.className = 'mk-pick-row';
+        label.dataset.search = (student.name + ' ' + student.id).toLowerCase();
+        label.style.cssText = 'display:flex; align-items:center; gap:10px; padding:10px; border:1px solid #eee; border-radius:8px; cursor:pointer;';
+        label.innerHTML = `
+            <input type="checkbox" class="student-select-chk" value="${escapeAttr(student.id)}" data-name="${escapeAttr(student.name)}"
+                ${chosen.has(student.id) ? 'checked' : ''} style="width:18px; height:18px;">
+            <span style="font-size:15px;">${escapeHTML(student.name)} (${escapeHTML(student.id)})
+                ${student.id === primaryId ? '<span style="color:#2b6cb0; font-size:12px;">[기준 학생]</span>' : ''}</span>`;
+        listDiv.appendChild(label);
+    });
+    const search = document.getElementById('studentSelectSearch');
+    if (search) search.value = '';
+    document.getElementById('adminStudentSelectModal').style.display = 'flex';
+    if (search) setTimeout(() => { try { search.focus(); } catch (e) {} }, 30);
+}
+
+function filterStudentSelectList(q) {
+    q = String(q || '').trim().toLowerCase();
+    document.querySelectorAll('#studentSelectList .mk-pick-row').forEach(el => {
+        el.style.display = (!q || el.dataset.search.indexOf(q) >= 0) ? 'flex' : 'none';
+    });
+}
+
 function closeStudentSelectModal() {
     const modal = document.getElementById('adminStudentSelectModal');
     if (modal) modal.style.display = 'none';
 }
 
-// 3. 중복출제 선택 완료 처리
+// 선택 완료: 원래 고른 순서를 지키고, 새로 고른 학생은 뒤에 붙입니다.
 function applyMultiStudentSelection() {
-    // 체크된 모든 학생 가져오기 (기준 학생은 비활성화 상태여도 checked라면 포함됨)
-    const chks = document.querySelectorAll('.student-select-chk:checked');
-    
-    SELECTED_MULTI_STUDENTS = Array.from(chks).map(cb => ({ 
-        id: cb.value, 
-        name: cb.getAttribute('data-name') 
-    }));
-
-    updateStudentDisplayUI(); // "외 n명" 표시 갱신
-    closeStudentSelectModal(); // 모달 닫기
+    const checked = Array.from(document.querySelectorAll('.student-select-chk:checked'))
+        .map(cb => ({ id: cb.value, name: cb.getAttribute('data-name') }));
+    const ids = new Set(checked.map(s => s.id));
+    const next = SELECTED_MULTI_STUDENTS.filter(s => ids.has(s.id));
+    checked.forEach(s => { if (!next.some(x => x.id === s.id)) next.push(s); });
+    closeStudentSelectModal();
+    setMakerStudents(next);
 }
 
-// 4. 하단 알림창 UI 갱신
-function updateStudentDisplayUI() {
-    const infoEl = document.getElementById('multiStudentInfo');
-    const extraCountEl = document.getElementById('extraCount');
-    const indicatorEl = document.getElementById('multiActiveIndicator');
-    
-    // 기준 학생 1명을 제외한 나머지 인원수 계산
-    if (SELECTED_MULTI_STUDENTS.length > 1) {
-        infoEl.style.display = 'inline-flex';
-        extraCountEl.innerText = (SELECTED_MULTI_STUDENTS.length - 1);
-        if (indicatorEl) indicatorEl.style.display = 'inline-block';
-    } else {
-        infoEl.style.display = 'none';
-        if (indicatorEl) indicatorEl.style.display = 'none';
-    }
+function removeMakerStudent(id) {
+    setMakerStudents(SELECTED_MULTI_STUDENTS.filter(s => s.id !== id));
 }
-// 5. 중복출제 취소 (기준 학생만 남기고 초기화)
-function clearMultiStudent() {
+
+// 학생 목록을 바꾸고, 기준 학생이 바뀌었으면 목록을 다시 불러옵니다.
+function setMakerStudents(list) {
     const selectEl = document.getElementById('targetStudentSelect');
-    const primaryId = selectEl.value;
-    const primaryName = selectEl.options[selectEl.selectedIndex].text.split(' (')[0];
-    
-    if(primaryId) {
-        SELECTED_MULTI_STUDENTS = [{ id: primaryId, name: primaryName }];
-    } else {
-        SELECTED_MULTI_STUDENTS = [];
-    }
-    
+    const oldPrimary = selectEl ? selectEl.value : '';
+    SELECTED_MULTI_STUDENTS = (list || []).slice();
+    const newPrimary = SELECTED_MULTI_STUDENTS.length ? SELECTED_MULTI_STUDENTS[0].id : '';
+    if (selectEl) selectEl.value = newPrimary;
+    // 기준이 아닌 학생들의 배부 기록을 받아 둡니다.
+    SELECTED_MULTI_STUDENTS.slice(1).forEach(s => _mkFetchExtraAlast(s.id));
     updateStudentDisplayUI();
-    showCustomAlert('중복출제가 해제되었습니다.');
+
+    if (newPrimary === oldPrimary) { if (INVENTORY_DATA.length) { renderInventoryTable(); renderCartTable(); } return; }
+    if (!newPrimary) { resetMakerStudentView(); return; }
+    // 처음 고를 때는 새로 시작, 이미 목록이 있을 때는 바구니·필터·제목을 그대로 두고 기록만 바꿉니다.
+    loadInventoryData({ keep: !!oldPrimary && INVENTORY_DATA.length > 0 });
+}
+
+// 학생을 모두 뺐을 때: 처음 상태로
+function resetMakerStudentView() {
+    INVENTORY_REQUEST_SEQUENCE++;
+    INVENTORY_DATA = [];
+    MAKER_CART.clear();
+    updateCartUI();
+    renderCartTable();
+    MAKER_INSIGHT = null;
+    renderMakerInsight();
+    toggleRecentAssignmentsPanel(false);
+    const tbody = document.getElementById('invTbody');
+    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">위의 [+ 학생 선택]을 눌러 학생을 골라 주십시오.</td></tr>';
+    const hint = document.getElementById('invRecentHint');
+    if (hint) hint.hidden = true;
+    updateInvCount();
+}
+
+// 학생 칩 그리기 + 출제 버튼 문구
+function updateStudentDisplayUI() {
+    const box = document.getElementById('mkStudentChips');
+    const addBtn = document.getElementById('btnAddStudent');
+    const note = document.getElementById('mkPrimaryNote');
+    const list = SELECTED_MULTI_STUDENTS;
+    if (box) {
+        box.innerHTML = list.map((st, i) => `
+            <span class="mk-chip${i === 0 ? ' primary' : ''}"${i === 0 && list.length > 1 ? ' title="기준 학생: 목록의 상태·배부·오답이 이 학생 기준입니다."' : ''}>
+              ${escapeHTML(st.name)}${i === 0 && list.length > 1 ? '<small>기준</small>' : ''}
+              <button type="button" aria-label="${escapeAttr(st.name)} 빼기" onclick="removeMakerStudent('${escapeAttr(st.id)}')">×</button>
+            </span>`).join('');
+    }
+    if (addBtn) addBtn.textContent = list.length ? '+ 학생 추가' : '+ 학생 선택';
+    if (note) {
+        note.hidden = list.length < 2;
+        note.textContent = list.length > 1 ? `목록의 상태·배부·오답은 ${list[0].name} 기준` : '';
+    }
+    const btn = document.getElementById('btnPrintChecked');
+    if (btn) btn.textContent = list.length > 1 ? `🖨️ ${list.length}명에게 출제 및 인쇄` : '🖨️ 과제 출제 및 인쇄';
+}
+
+// 예전 '중복출제 취소' 호출 호환: 기준 학생만 남깁니다.
+function clearMultiStudent() {
+    setMakerStudents(SELECTED_MULTI_STUDENTS.slice(0, 1));
 }
 
 /* ===================== [신규] 관리자 Inventory 모드 로직 ===================== */
@@ -110,10 +195,11 @@ function addSelectedToCart() {
     }
     selectedCB.forEach(cb => MAKER_CART.add(cb.value));
     updateCartUI();
-    const cartPanel = document.getElementById('cartListPanel');
-    if (cartPanel && cartPanel.classList.contains('open')) renderCartTable();
+    renderCartTable();
     renderInventoryTable(); // 담긴 것은 비활성화 처리하기 위해 다시 그림
-    showCustomAlert(`${selectedCB.length}개의 문제가 바구니에 추가되었습니다.\n(현재 총 ${MAKER_CART.size}개)`);
+    // 바구니가 오른쪽에 늘 보이므로 알림 창 대신 바구니를 잠깐 강조합니다.
+    const aside = document.getElementById('createFooter');
+    if (aside) { aside.classList.remove('mc-flash'); void aside.offsetWidth; aside.classList.add('mc-flash'); }
 }
 
 function clearCart() {
@@ -121,41 +207,25 @@ function clearCart() {
     showCustomConfirm('바구니를 모두 비우시겠습니까?', () => {
         MAKER_CART.clear();
         updateCartUI();
+        renderCartTable();
         renderInventoryTable();
-        
-        // 지울 때 패널이 열려있으면 닫기
-        const panel = document.getElementById('cartListPanel');
-        if(panel && panel.classList.contains('open')) toggleCartList();
     });
 }
 
-// [신규] 바구니 패널 토글 함수
+// 바구니는 오른쪽에 항상 펼쳐져 있습니다. 예전 호출과 맞추기 위해 이름만 남겨 두고 목록을 다시 그립니다.
 function toggleCartList() {
-    const panel = document.getElementById('cartListPanel');
-    const icon = document.getElementById('cartToggleIcon');
-    
-    if (panel.classList.contains('open')) {
-        panel.classList.remove('open');
-        if (icon) icon.innerText = '🔼'; // 패널 닫힐 때 위쪽 화살표
-    } else {
-        if(MAKER_CART.size === 0) {
-            showCustomAlert('바구니가 비어 있습니다.');
-            return;
-        }
-        panel.classList.add('open');
-        if (icon) icon.innerText = '🔽'; // 패널 열릴 때 아래쪽 화살표
-        renderCartTable();
-    }
+    renderCartTable();
 }
 
 // [신규] 바구니 내부 리스트 렌더링
 function renderCartTable() {
+    _mkSyncCartTop();
     const tbody = document.getElementById('cartTbody');
     if (!tbody) return;
     tbody.innerHTML = '';
     
     if (MAKER_CART.size === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="padding:20px; text-align:center;">바구니가 비어 있습니다.</td></tr>';
+        tbody.innerHTML = '<tr><td class="mc-empty">문제를 고른 뒤 [바구니 담기]를 누르면 여기에 쌓입니다.</td></tr>';
         return;
     }
     
@@ -203,30 +273,19 @@ function renderCartTable() {
             this.style.opacity = '1';
         });
 
-        let statusBadge = '';
-        if (row.isSolved) {
-            if (row.wrongCount > 0) statusBadge = '<span style="color:#d97706; font-weight:bold; font-size:11px;">[완료]</span>';
-            else statusBadge = '<span style="color:#059669; font-weight:bold; font-size:11px;">[완료]</span>';
-        } else {
-            statusBadge = '<span style="color:#dc2626; font-weight:bold; font-size:11px;">[미완]</span>';
-        }
-
-        let wrongCountBadge = row.wrongCount > 0 
-            ? `<span style="color:#dc2626; font-weight:bold; font-size:11px;">${row.wrongCount}회</span>` 
-            : '<span style="color:#9ca3af; font-size:11px;">-</span>';
-
         const sourceStr = [row.grade, row.year, row.month, row.detail].filter(Boolean).join(' ');
-
+        const num = row.number ? (String(row.number).split('_').slice(3).join('_') || row.number) : '';
+        const recent = mkRecentAssignInfo(row);
+        const idx = fragment.children.length + 1;
+        tr.className = 'mc-row' + (recent.length ? ' recent' : '');
+        tr.title = '끌어서 순서를 바꿀 수 있습니다.';
         tr.innerHTML = `
-          <td style="padding:8px; text-align:center;">
-            <button onclick="removeFromCart('${row.qid}')" style="background:#ef4444; color:white; border:none; padding:4px 8px; border-radius:4px; font-size:11px; cursor:pointer;">제거</button>
+          <td class="mc-n">${idx}</td>
+          <td class="mc-info">
+            <div class="mc-src">${escapeHTML(sourceStr)}${num ? ' ' + escapeHTML(num) + '번' : ''}</div>
+            <div class="mc-meta">${escapeHTML(row.type || '-')} · ${escapeHTML(String(row.difficulty || '-'))}단계${row.wrongCount > 0 ? ` · <span style="color:#dc2626;">오답 ${row.wrongCount}회</span>` : ''}${recent.length ? ` · <span class="mc-recent">최근 배부 ${recent.map(r => escapeHTML(r.name) + ' ' + _mkMd(r.ts)).join(', ')}</span>` : ''}</div>
           </td>
-          <td style="padding:8px; text-align:center;">${statusBadge}</td>
-          <td style="padding:8px; text-align:center;">${wrongCountBadge}</td>
-          <td style="padding:8px;">${sourceStr}</td>
-          <td style="padding:8px;">${row.type || '-'}</td>
-          <td style="padding:8px;">${row.difficulty || '-'}</td> 
-          <td style="padding:8px; color:#666;">${row.number || String(row.qid).substring(0,5)+'...'}</td>
+          <td class="mc-x"><button type="button" aria-label="바구니에서 빼기" onclick="removeFromCart('${escapeAttr(row.qid)}')">×</button></td>
         `;
         fragment.appendChild(tr);
     });
@@ -237,10 +296,14 @@ function renderCartTable() {
 function syncCartOrder() {
     const rows = document.querySelectorAll('#cartTbody tr[data-qid]');
     const newCart = new Set();
-    rows.forEach(tr => {
+    rows.forEach((tr, i) => {
         newCart.add(tr.getAttribute('data-qid'));
+        const n = tr.querySelector('.mc-n');
+        if (n) n.textContent = i + 1;
     });
     MAKER_CART = newCart;
+    const chk = document.getElementById('chkCartOrder');
+    if (chk) chk.checked = true; // 손으로 순서를 바꾸면 그 순서대로 출제
 }
 
 function sortCartList(type) {
@@ -304,8 +367,7 @@ function removeFromCart(qid) {
         // 바구니 화면 즉시 갱신
         renderCartTable(); 
         
-        // 마지막 문제 지웠으면 패널 닫기
-        if (MAKER_CART.size === 0) toggleCartList();
+
     }
 }
 
@@ -347,7 +409,9 @@ const invSelState = {
 
 // 1. 문제 목록 불러오기 (서버 호출)
 let INVENTORY_REQUEST_SEQUENCE = 0;
-function loadInventoryData() {
+function loadInventoryData(opts) {
+  // opts.keep: 기준 학생만 바뀐 경우 — 바구니·필터·제목은 그대로 두고 학생 기록만 새로 받습니다.
+  const keep = !!(opts && opts.keep === true);
   const requestSequence = ++INVENTORY_REQUEST_SEQUENCE;
   const requestUser = CURRENT_USER;
   // ★ [수정] 드롭다운(Select)과 입력창(Input) 둘 다 확인
@@ -362,6 +426,7 @@ function loadInventoryData() {
     return;
   }
 
+  if (!keep) {
   // [추가] 새 학생을 불러올 때 기존 설정(바구니, 제목, 필터) 모두 초기화
   MAKER_CART.clear();
   updateCartUI();
@@ -383,6 +448,13 @@ function loadInventoryData() {
   if (document.getElementById('chkInvExcludeSolved')) document.getElementById('chkInvExcludeSolved').checked = false;
   if (document.getElementById('invMinWrongCount')) document.getElementById('invMinWrongCount').value = '';
   if (document.getElementById('invNumberSearch')) document.getElementById('invNumberSearch').value = '';
+  // 기본값: 최근 30일 배부 제외 · 서술형 제외
+  if (document.getElementById('chkExcludeRecentAsg')) document.getElementById('chkExcludeRecentAsg').checked = true;
+  if (document.getElementById('chkExcludeDescriptive')) document.getElementById('chkExcludeDescriptive').checked = true;
+  } else {
+    MAKER_INSIGHT = null;
+    renderMakerInsight();
+  }
 
   // ★ [추가] 선택된 학생의 이름 찾기 (ID로 목록 검색)
   let displayName = val;
@@ -400,7 +472,9 @@ function loadInventoryData() {
   }
 
   // 학생을 불러오면 최근 5회차 과제도 함께 엽니다. (문항 목록과 동시에 받아 기다리는 시간을 늘리지 않음)
-  toggleRecentAssignmentsPanel(true);
+  // 오른쪽에 바구니 칸이 생겨 화면이 좁으면 문제 목록이 너무 좁아지므로, 넓은 화면(1600px 이상)에서만 자동으로 엽니다.
+  const recentPanel = document.getElementById('recentAssignmentsPanel');
+  if (window.innerWidth >= 1600 || (recentPanel && recentPanel.style.display !== 'none')) toggleRecentAssignmentsPanel(true);
 
   fetchInventoryRows(val).then(data => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser || (selectEl && selectEl.value !== val)) return;
@@ -411,9 +485,10 @@ function loadInventoryData() {
     if(INVENTORY_DATA.length === 0) { showCustomAlert('등록된 문제가 없습니다.'); return; }
 
     document.getElementById('inventorySection').style.display = 'flex';
-    initInventoryFilters();
+    if (!keep) initInventoryFilters();
     renderMakerInsight();
     renderInventoryTable();
+    renderCartTable();
       
   }, err => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser) return;
@@ -646,6 +721,9 @@ function renderInventoryTable() {
       hasAnyFilter = true;
   }
 
+  const recentHint = document.getElementById('invRecentHint');
+  if (recentHint) recentHint.hidden = true;
+
   // ★ 필터가 하나도 없으면 그리지 않고 안내 문구만 표시 (속도 최적화)
   if (!hasAnyFilter) {
     const tr = document.createElement('tr');
@@ -672,6 +750,8 @@ function renderInventoryTable() {
   const numQuery = (document.getElementById('invNumberSearch') ? document.getElementById('invNumberSearch').value.trim().toLowerCase() : '');
   const excludeSolved = document.getElementById('chkInvExcludeSolved') ? document.getElementById('chkInvExcludeSolved').checked : false;
   const excludeDescriptive = document.getElementById('chkExcludeDescriptive') ? document.getElementById('chkExcludeDescriptive').checked : false;
+  const excludeRecent = document.getElementById('chkExcludeRecentAsg') ? document.getElementById('chkExcludeRecentAsg').checked : false;
+  let hiddenRecent = 0;
  // ★ [추가] 체크박스 상태 가져오기
   const minWrongStr = document.getElementById('invMinWrongCount') ? document.getElementById('invMinWrongCount').value : '0';
   const minWrong = parseInt(minWrongStr, 10) || 0;
@@ -729,8 +809,16 @@ function renderInventoryTable() {
         if(s && s.months.size && !s.months.has(row.month)) return false;
         if(s && s.details.size && !s.details.has(row.detail)) return false;
     }
+    // 최근 배부 제외는 다른 조건을 모두 통과한 문제만 셉니다(숨긴 개수 안내용). 바구니에 이미 담은 문제는 그대로 보입니다.
+    if (excludeRecent && !MAKER_CART.has(row.qid) && mkRecentAssignInfo(row).length) { hiddenRecent++; return false; }
     return true;
   });
+
+  if (recentHint && hiddenRecent > 0) {
+    const names = SELECTED_MULTI_STUDENTS.map(st => st.name).join('·');
+    recentHint.innerHTML = `최근 ${MK_RECENT_DAYS}일 안에 ${escapeHTML(names)}에게 낸 문제 ${hiddenRecent}개를 숨겼습니다. <button type="button" onclick="document.getElementById('chkExcludeRecentAsg').checked=false; renderInventoryTable();">숨긴 문제 보기</button>`;
+    recentHint.hidden = false;
+  }
 
   if (filtered.length === 0) {
       const tr = document.createElement('tr');
@@ -828,6 +916,9 @@ function renderInventoryTable() {
     const opacityStyle = isAlreadyInCart ? 'opacity: 0.5; background: #f3f4f6;' : '';
 
     tr.style.cssText = `border-bottom: 1px solid #eee; ${opacityStyle}`;
+    const recentInfo = mkRecentAssignInfo(row);
+    if (recentInfo.length && !isAlreadyInCart) tr.style.background = '#fffbeb';
+    const recentTag = recentInfo.length ? `<span class="mk-recent-tag" title="${escapeAttr(recentInfo.map(r => r.name + ' ' + _mkMd(r.ts)).join(', '))}">최근 배부</span>` : '';
     tr.innerHTML = `
       <td style="padding:8px; text-align:center;">
         <input type="checkbox" class="inv-check" 
@@ -840,7 +931,7 @@ function renderInventoryTable() {
       <td style="padding:8px; text-align:center; font-size:11px; color:#6b7280;">${row.lastTs || '-'}</td>
       <td style="padding:8px; text-align:center;">${assignCountBadge}</td>
       <td style="padding:8px; text-align:center;">${wrongCountBadge}</td>
-      <td style="padding:8px;">${sourceStr}</td>
+      <td style="padding:8px;">${sourceStr} ${recentTag}</td>
       <td style="padding:8px;">${row.type || '-'}</td>
       <td style="padding:8px;">${row.difficulty || '-'}</td> 
       <td style="padding:8px; color:#666;">${row.number || row.qid.substring(0,5)+'...'}</td>
@@ -1652,31 +1743,44 @@ if (btnPrintChecked) {
 
     if(MAKER_CART.size === 0) { showCustomAlert('바구니에 담긴 문제가 없습니다.'); return; }
 
-    let targetUsers = [];
-    if (SELECTED_MULTI_STUDENTS && SELECTED_MULTI_STUDENTS.length > 0) {
-        targetUsers = [...SELECTED_MULTI_STUDENTS];
-    } else {
+    let targetUsers = SELECTED_MULTI_STUDENTS.slice();
+    if (!targetUsers.length) {
         const selectEl = document.getElementById('targetStudentSelect');
-        if (selectEl && selectEl.value) {
-            const found = MANAGED_STUDENTS.find(s => s.id === selectEl.value);
-            targetUsers = [{ id: selectEl.value, name: found ? found.name : selectEl.value }];
-        }
+        if (selectEl && selectEl.value) targetUsers = [{ id: selectEl.value, name: _mkStudentName(selectEl.value) }];
     }
     if(targetUsers.length === 0) { showCustomAlert('대상 학생을 선택해 주십시오.'); return; }
 
-    const today = new Date();
-    const mm = today.getMonth() + 1;
-    const dd = today.getDate();
-    const studentLabel = targetUsers.length > 1 ? `${targetUsers[0].name} 외 ${targetUsers.length - 1}명` : targetUsers[0].name;
-    const qCount = MAKER_CART.size;
-    const defaultTitle = `${mm}월 ${dd}일 ${studentLabel} 과제 ${qCount}개`;
-
-    const customTitle = titleVal || defaultTitle;
-    const confirmMsg = targetUsers.length > 1 
+    const makeTitle = () => {
+        if (titleVal) return titleVal;
+        const today = new Date();
+        const studentLabel = targetUsers.length > 1 ? `${targetUsers[0].name} 외 ${targetUsers.length - 1}명` : targetUsers[0].name;
+        return `${today.getMonth() + 1}월 ${today.getDate()}일 ${studentLabel} 과제 ${MAKER_CART.size}개`;
+    };
+    const confirmMsg = targetUsers.length > 1
         ? `${targetUsers[0].name} 외 ${targetUsers.length - 1}명에게 일괄 출제하시겠습니까?`
         : `${targetUsers[0].name} 학생에게 과제를 출제하시겠습니까?`;
 
-    showCustomConfirm(confirmMsg, function() {
+    // 다른 학생들의 배부 기록을 다 받은 뒤 최근 배부 문항을 확인합니다.
+    const loadEl0 = document.getElementById('loadingOverlay');
+    const needWait = SELECTED_MULTI_STUDENTS.slice(1).some(st => !MK_EXTRA_ALAST.has(st.id));
+    if (needWait && loadEl0) { loadEl0.querySelector('.loading-text').innerText = '배부 기록 확인 중...'; loadEl0.classList.add('active'); }
+    _mkWaitExtras().then(() => {
+        if (needWait && loadEl0) loadEl0.classList.remove('active');
+        const dups = Array.from(MAKER_CART).map(qid => {
+            const row = INVENTORY_DATA.find(r => r.qid === qid);
+            const info = mkRecentAssignInfo(row);
+            return info.length ? { qid: qid, row: row, info: info } : null;
+        }).filter(Boolean);
+        if (!dups.length) { showCustomConfirm(confirmMsg, () => doAssign(makeTitle())); return; }
+        showRecentDupDialog(dups, targetUsers, (removeQids) => {
+            removeQids.forEach(q => MAKER_CART.delete(q));
+            updateCartUI(); renderCartTable(); renderInventoryTable();
+            if (MAKER_CART.size === 0) { showCustomAlert('바구니에 남은 문제가 없습니다.'); return; }
+            doAssign(makeTitle());
+        });
+    });
+
+    function doAssign(customTitle) {
         const groups = {};
         const cartArray = Array.from(MAKER_CART);
         cartArray.forEach(qid => {
@@ -1725,16 +1829,69 @@ if (btnPrintChecked) {
             
             // 서버에서 바로 넘어온 res.qs를 사용하므로 추가 통신 대기 시간이 0초가 됩니다.
             renderQuestionsForPrint(res.qs, customTitle, null, printStudentName, qids);
-            SELECTED_MULTI_STUDENTS = []; 
+            // 예전처럼 같은 과제를 실수로 또 내지 않도록 기준 학생만 남깁니다.
+            SELECTED_MULTI_STUDENTS = SELECTED_MULTI_STUDENTS.slice(0, 1);
             updateStudentDisplayUI();
             resetMakerAfterAssign();
         }).withFailureHandler(err => {
             if(loadEl) loadEl.classList.remove('active');
             showCustomAlert('출제 실패: ' + err);
         })[apiFunc].apply(null, apiArgs);
-    });
+    }
 };
 }
+
+// 출제 직전 경고: 최근 30일 안에 같은 학생에게 낸 문항 목록 (체크한 문항은 빼고 출제)
+function showRecentDupDialog(dups, targetUsers, onGo) {
+    const old = document.getElementById('mkDupDialog');
+    if (old) old.remove();
+    const ov = document.createElement('div');
+    ov.id = 'mkDupDialog';
+    ov.className = 'mk-dup-overlay';
+    const rows = dups.map(d => {
+        const r = d.row || {};
+        const src = [r.grade, r.year, r.month, r.detail].filter(Boolean).join(' ');
+        const num = r.number ? (String(r.number).split('_').slice(3).join('_') || r.number) : '';
+        return `<tr>
+          <td>${escapeHTML(src)}${num ? ' ' + escapeHTML(num) + '번' : ''}<div class="mk-dup-sub">${escapeHTML(r.type || '')}</div></td>
+          <td>${d.info.map(x => escapeHTML(x.name) + ' <span class="mk-dup-date">' + _mkMd(x.ts) + '</span>').join('<br>')}</td>
+          <td style="text-align:center;"><input type="checkbox" class="mk-dup-chk" value="${escapeAttr(d.qid)}" checked aria-label="빼기"></td>
+        </tr>`;
+    }).join('');
+    ov.innerHTML = `<div class="mk-dup-box" role="dialog" aria-modal="true" aria-labelledby="mkDupTitle">
+        <div class="mk-dup-head">
+          <h3 id="mkDupTitle">⚠️ 최근에 낸 문제가 ${dups.length}개 들어 있습니다</h3>
+          <div>${escapeHTML(targetUsers.map(u => u.name).join(', '))} · 바구니 ${MAKER_CART.size}문항</div>
+        </div>
+        <div class="mk-dup-body">
+          <p>아래 문항은 최근 ${MK_RECENT_DAYS}일 안에 같은 학생에게 배부했습니다. 체크한 문항은 빼고 출제합니다.</p>
+          <table><thead><tr><th>문항</th><th style="width:150px;">학생 · 배부일</th><th style="width:52px;">빼기</th></tr></thead><tbody>${rows}</tbody></table>
+          <p class="mk-dup-left"></p>
+        </div>
+        <div class="mk-dup-foot">
+          <button type="button" class="mk-dup-cancel">취소</button>
+          <button type="button" class="mk-dup-keep">그대로 출제</button>
+          <button type="button" class="mk-dup-go">체크한 문항 빼고 출제</button>
+        </div>
+      </div>`;
+    document.body.appendChild(ov);
+    const close = () => { ov.remove(); document.removeEventListener('keydown', onKey); };
+    const onKey = e => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', onKey);
+    const checkedQids = () => Array.from(ov.querySelectorAll('.mk-dup-chk:checked')).map(c => c.value);
+    const updLeft = () => {
+        const n = checkedQids().length;
+        ov.querySelector('.mk-dup-left').textContent = n ? `체크한 ${n}문항을 빼면 ${MAKER_CART.size - n}문항으로 출제됩니다.` : '체크한 문항이 없습니다. 바구니 그대로 출제됩니다.';
+        ov.querySelector('.mk-dup-go').disabled = !n;
+    };
+    ov.addEventListener('change', updLeft);
+    updLeft();
+    ov.querySelector('.mk-dup-cancel').onclick = close;
+    ov.addEventListener('click', e => { if (e.target === ov) close(); });
+    ov.querySelector('.mk-dup-keep').onclick = () => { close(); onGo([]); };
+    ov.querySelector('.mk-dup-go').onclick = () => { const q = checkedQids(); close(); onGo(q); };
+}
+
 
 function refreshMasterIndex() {
   showCustomConfirm('모든 시트를 분석하여 인덱스를 새로고침하시겠습니까?\n완료 후 로딩 속도가 획기적으로 빨라집니다.', function() {
@@ -2503,8 +2660,7 @@ function fetchWeeklyBundle(studentId, days) {
 function resetMakerAfterAssign() {
   MAKER_CART.clear();
   updateCartUI();
-  const panel = document.getElementById('cartListPanel');
-  if (panel && panel.classList.contains('open')) toggleCartList();
+  renderCartTable();
   const titleInput = document.getElementById('customTitleInput');
   if (titleInput) titleInput.value = '';
   document.querySelectorAll('#invTbody .inv-check:checked').forEach(cb => { cb.checked = false; });
@@ -2631,3 +2787,11 @@ function syncMakerInsightChips() {
         return r;
     };
 })();
+
+// 오른쪽 바구니가 위쪽 머리글 바로 아래에 붙어 있도록 머리글 높이를 CSS 변수로 알려 줍니다.
+function _mkSyncCartTop() {
+  const h = document.getElementById('globalHeader');
+  if (h) document.documentElement.style.setProperty('--mk-cart-top', h.offsetHeight + 'px');
+}
+window.addEventListener('resize', _mkSyncCartTop);
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _mkSyncCartTop); else _mkSyncCartTop();

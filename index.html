@@ -11,7 +11,7 @@
   <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
   <link rel="apple-touch-icon" href="https://i.imgur.com/NVHBqH2.png">
   <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
-  <link rel="stylesheet" href="style.css?v=20261118d">
+  <link rel="stylesheet" href="style.css?v=20261121a">
   <link rel="stylesheet" href="print.css?v=20261115e">
   <link rel="stylesheet" href="notice-points.css?v=20261119a">
   <link rel="stylesheet" href="ink.css?v=20261118a">
@@ -380,22 +380,24 @@
     <div class="maker-header">
         <div class="header-row">
             <label style="font-weight:bold; font-size:14px; white-space:nowrap;">대상 학생:</label>
-            <div id="targetStudentDisplay" style="display:flex; align-items:center; gap:5px;">
-                <select id="targetStudentSelect" style="margin:0; width:140px; padding:6px; font-size:14px; border:1px solid #d1d5db; border-radius:6px;">
+            <div id="targetStudentDisplay" class="mk-students">
+                <!-- 첫 번째 칩이 기준 학생입니다(목록의 상태·배부·오답 기준). 선택 상자는 기존 코드 호환용으로 숨겨 둡니다. -->
+                <select id="targetStudentSelect" hidden aria-hidden="true" tabindex="-1">
                     <option value="">학생 선택</option>
                 </select>
-                <span id="multiStudentHeaderInfo" style="display:none; font-size:13px; color:#2b6cb0; font-weight:bold; cursor:pointer; text-decoration:underline;"></span>
+                <span id="mkStudentChips" class="mk-student-chips"></span>
+                <button type="button" id="btnAddStudent" class="mk-add-student" onclick="openStudentSelectModal()">+ 학생 선택</button>
             </div>
-            <button id="btnLoadInventory" class="btn-primary" style="width:auto; padding:6px 12px; font-size:13px;">불러오기</button>
+            <button id="btnLoadInventory" type="button" hidden>불러오기</button>
             <button id="btnToggleRecentAsgn" onclick="toggleRecentAssignmentsPanel()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #059669; color:#059669;">최근 과제</button>
-            <button onclick="openStudentSelectModal()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #2b6cb0; color:#2b6cb0;">중복출제</button>
-            <span id="multiActiveIndicator" style="display:none; color:#059669; font-weight:bold; font-size:13px; margin-left:8px;">중복출제 활성화</span>
+            <span id="mkPrimaryNote" class="mk-primary-note" hidden></span>
         </div>
         <!-- 최근 30일 취약 유형 · 난이도 (불러오기 후 표시, 누르면 왼쪽 필터에 적용) -->
         <div id="makerInsight" class="mk-insight" style="display:none;"></div>
         <div class="header-row" style="background:#f9fafb; padding:8px; border-radius:8px;">
             <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap;"><input type="checkbox" id="chkInvExcludeSolved" onchange="renderInventoryTable()" style="margin-right:4px;"> 안 푼 문제만</label>
-            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; margin-left:10px;"><input type="checkbox" id="chkExcludeDescriptive" onchange="renderInventoryTable()" style="margin-right:4px;"> 서술형 제외</label>
+            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; margin-left:10px;"><input type="checkbox" id="chkExcludeRecentAsg" checked onchange="renderInventoryTable()" style="margin-right:4px;"> 최근 30일 배부 제외</label>
+            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; margin-left:10px;"><input type="checkbox" id="chkExcludeDescriptive" checked onchange="renderInventoryTable()" style="margin-right:4px;"> 서술형 제외</label>
             <span style="font-size:15px; margin-left:10px;">오답:</span>
             <input type="number" id="invMinWrongCount" placeholder="0" style="width:80px; margin:0; padding:4px;" oninput="renderInventoryTable()">
             <span style="font-size:15px; margin-left:10px;">번호검색:</span>
@@ -406,6 +408,7 @@
                 <button id="btnAddToCart" class="btn-primary" style="width:auto; padding:6px 15px; font-size:15px; background:#059669;" onclick="addSelectedToCart()">바구니 담기 (<span id="invSelectedCount">0</span>)</button>
             </div>
         </div>
+        <div id="invRecentHint" class="mk-recent-hint" hidden></div>
     </div>
 
     <!-- [중단 스크롤] 목록 -->
@@ -478,69 +481,42 @@
     </div>
 </div>
 
-    <!-- [개편] 하단 고정 바구니 및 출제 영역 -->
-<div class="maker-footer" id="createFooter" style="position: relative; display: 
-flex; align-items: center; justify-content: space-between; padding: 15px 25px; background: #f8fafc;
-border-top: 2px solid #2b6cb0;">
-    
-    <!-- 바구니 상세 목록 패널 (위로 열리는 부분) -->
-    <div id="cartListPanel" style="display:flex; flex-direction:column; overflow:hidden;">
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; border-bottom:1px solid #2b6cb0; background:#fff; padding:8px 12px; box-sizing:border-box;">
-            <span style="font-weight:bold; color:#1e40af; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">🛒 바구니 상세 목록 <span id="cartDiffDist" class="cart-diff-dist"></span></span>
-            <div style="display:flex; align-items:center; gap:10px;">
-                <label style="font-size:13px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; color:#374151;"><input type="checkbox" id="chkCartOrder" style="margin-right:4px;"> 현재 보이는 순서대로 출제</label>
-                <select id="cartSortSelect" onchange="sortCartList(this.value)" style="margin:0; padding:4px 8px; font-size:13px; border-radius:6px; border:1px solid #d1d5db;">
-                    <option value="">정렬 방식 선택</option>
-                    <option value="number_asc">번호 오름차순</option>
-                    <option value="number_desc">번호 내림차순</option>
-                    <option value="type_asc">유형 가나다순</option>
-                    <option value="type_desc">유형 역순</option>
-                    <option value="difficulty_asc">난이도 낮은 순</option>
-                    <option value="difficulty_desc">난이도 높은 순</option>
-                    <option value="source_asc">출처 오름차순</option>
-                    <option value="source_desc">출처 내림차순</option>
-                    <option value="wrong_desc">오답 많은 순</option>
-                    <option value="wrong_asc">오답 적은 순</option>
-                </select>
-                <button onclick="toggleCartList()" style="background:none; border:none; font-size:24px; cursor:pointer; color:#6b7280; line-height:1; padding:0;">&times;</button>
-            </div>
-        </div>
-        <div style="flex:1; overflow:auto;"><table style="width:100%; border-collapse:collapse; font-size:12px;"><tbody id="cartTbody"></tbody></table></div>
-    </div>
-
-    <!-- [왼쪽 영역] 바구니 정보 및 비우기 버튼 -->
-    <div style="display:flex; align-items:center; gap:12px;">
-        <div onclick="toggleCartList()" style="cursor:pointer; background:#fff; padding:8px 16px; border:2px solid #2b6cb0; border-radius:10px; display:flex; align-items:center; gap:8px; height: 46px; box-sizing: border-box;">
-            <span style="font-size:18px;">🛒</span>
-            <span style="font-size:14px; font-weight:bold; color:#1e40af;">바구니: <span id="cartCountDisplay" style="color:#dc2626;">0</span>개</span>
-            <span id="cartDiffSummary" class="cart-diff-sum"></span>
-            <span id="cartToggleIcon" style="font-size:12px; color:#2b6cb0;">▲</span>
-        </div>
-        <button onclick="clearCart()" class="btn-ghost" style="width:auto; padding:0 15px; height:46px; font-size:13px; background:#fff; border:1px solid #d1d5db; border-radius:10px; color:#4b5563; font-weight:bold; display:flex; align-items:center; gap:5px;">
-            <span style="font-size:16px;">🗑️</span> 바구니 비우기
-        </button>
-        
-        <!-- 중복출제 알림 (학생 추가 시 표시) -->
-        <div id="multiStudentInfo" style="display:none; align-items:center; gap:8px; background:#eff6ff; padding:0 15px; height:46px; border-radius:10px; border:1px solid #2b6cb0;">
-            <span style="font-size:13px; color:#1e40af; font-weight:bold;">외 <span id="extraCount">0</span>명 중복설정</span>
-            <button onclick="clearMultiStudent()" style="background:none; border:none; color:#dc2626; font-size:11px; cursor:pointer; text-decoration:underline; padding:0;">취소</button>
-        </div>
-    </div>
-
-    <!-- [오른쪽 영역] 제목 입력 및 최종 출제 -->
-    <div style="display:flex; align-items:center; gap:10px; flex: 1; justify-content: flex-end;">
-        <!-- 제목 입력창: 너비를 500px로 대폭 확장 -->
-        <input type="text" id="customTitleInput" placeholder="과제 제목을 입력하십시오 (예: 3월 1주차 주간평가)" 
-               style="width: 500px; margin:0; height:46px; border:2px solid #d1d5db; border-radius:10px; padding: 0 15px; font-weight:bold; font-size:15px; transition: border-color 0.2s;">
-        
-        <button id="btnPrintChecked" class="btn-primary" 
-                style="width:200px; height:46px; font-weight:bold; font-size:15px; border-radius:10px; background:#2b6cb0; border:none; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:8px;">
-            🖨️ 과제 출제 및 인쇄
-        </button>
-    </div>
-</div>
 
     </div>
+    <!-- 오른쪽 바구니: 항상 펼쳐져 있고, 제목 입력과 출제 버튼도 여기에 있습니다. -->
+    <aside class="maker-cart" id="createFooter" aria-label="바구니">
+      <div class="mc-head">
+        <b class="mc-title">🛒 바구니 <span id="cartCountDisplay">0</span>개</b>
+        <button type="button" class="mc-clear" onclick="clearCart()">🗑️ 비우기</button>
+      </div>
+      <div class="mc-sum">
+        <span id="cartDiffSummary" class="cart-diff-sum"></span>
+        <span id="cartDiffDist" class="cart-diff-dist"></span>
+      </div>
+      <div class="mc-sort">
+        <select id="cartSortSelect" onchange="sortCartList(this.value)" aria-label="바구니 정렬">
+          <option value="">정렬 방식 선택</option>
+          <option value="number_asc">번호 오름차순</option>
+          <option value="number_desc">번호 내림차순</option>
+          <option value="type_asc">유형 가나다순</option>
+          <option value="type_desc">유형 역순</option>
+          <option value="difficulty_asc">난이도 낮은 순</option>
+          <option value="difficulty_desc">난이도 높은 순</option>
+          <option value="source_asc">출처 오름차순</option>
+          <option value="source_desc">출처 내림차순</option>
+          <option value="wrong_desc">오답 많은 순</option>
+          <option value="wrong_asc">오답 적은 순</option>
+        </select>
+        <label title="체크하면 바구니에 보이는 순서대로 출제합니다. 끄면 지문 세트 단위로 섞습니다."><input type="checkbox" id="chkCartOrder"> 이 순서대로</label>
+      </div>
+      <div id="cartListPanel" class="open mc-list">
+        <table><tbody id="cartTbody"></tbody></table>
+      </div>
+      <div class="mc-foot">
+        <input type="text" id="customTitleInput" placeholder="과제 제목 (비우면 자동으로 정함)" aria-label="과제 제목">
+        <button id="btnPrintChecked" type="button" class="mc-submit">🖨️ 과제 출제 및 인쇄</button>
+      </div>
+    </aside>
   </div>
 </div>
 
@@ -653,6 +629,7 @@ border-top: 2px solid #2b6cb0;">
       <h3 style="margin:0; font-size:17px;">출제 대상 학생 선택</h3>
       <button onclick="closeStudentSelectModal()" style="border:none; background:none; font-size:20px; cursor:pointer;">&times;</button>
     </div>
+    <div style="padding:12px 15px 0;"><input type="search" id="studentSelectSearch" placeholder="이름 또는 ID로 찾기" aria-label="학생 찾기" oninput="filterStudentSelectList(this.value)" style="width:100%; box-sizing:border-box; margin:0; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px;"></div>
     <div id="studentSelectList" style="padding:15px; max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
     </div>
     <div style="padding:12px; border-top:1px solid #eee; display:flex; gap:8px;">
@@ -680,10 +657,10 @@ border-top: 2px solid #2b6cb0;">
   <script src="vocab.js?v=20261119a"></script>
   <script src="student-quiz.js?v=20261119a"></script>
   <script src="ink.js?v=20261118a"></script>
-  <script src="admin-maker.js?v=20261119a"></script>
+  <script src="admin-maker.js?v=20261121a"></script>
   <script src="qbank.js?v=20261120b"></script>
   <script src="students.js?v=20261117a"></script>
   <script src="print-report.js?v=20261120a"></script>
-  <script src="app-core.js?v=20261120a"></script>
+  <script src="app-core.js?v=20261121a"></script>
 </body>
 </html>

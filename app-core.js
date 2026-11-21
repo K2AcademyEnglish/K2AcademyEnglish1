@@ -134,6 +134,8 @@ function goStart(){
       ADMIN_HISTORY_CACHE = [];
       if(typeof MAKER_CART !== 'undefined') MAKER_CART.clear();
       SELECTED_MULTI_STUDENTS = [];
+      if (typeof MK_EXTRA_ALAST !== 'undefined') MK_EXTRA_ALAST.clear();
+      if (typeof updateStudentDisplayUI === 'function') updateStudentDisplayUI();
 
       // [신규] 로그인 입력창 텍스트 지우기
       const idInput = document.getElementById('userIdInput');
@@ -439,6 +441,9 @@ function initAdminPage() {
     
     if(selectEl) selectEl.innerHTML = optionsHtml;
     if(weeklySelect) weeklySelect.innerHTML = optionsHtml;
+    // 과제출제 학생 칩도 새 목록 기준으로 비웁니다.
+    SELECTED_MULTI_STUDENTS = [];
+    if (typeof updateStudentDisplayUI === 'function') updateStudentDisplayUI();
     // 다른 관리자로 다시 로그인한 경우 이전 주간평가 화면을 비웁니다.
     if (typeof resetWeeklyView === 'function') resetWeeklyView();
 
