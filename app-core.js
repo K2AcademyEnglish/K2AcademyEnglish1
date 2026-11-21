@@ -444,6 +444,7 @@ function initAdminPage() {
     // 과제출제 학생 칩도 새 목록 기준으로 비웁니다.
     SELECTED_MULTI_STUDENTS = [];
     if (typeof updateStudentDisplayUI === 'function') updateStudentDisplayUI();
+    if (typeof renderMakerPresets === 'function') renderMakerPresets();   // 선생님별 저장 조건
     // 다른 관리자로 다시 로그인한 경우 이전 주간평가 화면을 비웁니다.
     if (typeof resetWeeklyView === 'function') resetWeeklyView();
 

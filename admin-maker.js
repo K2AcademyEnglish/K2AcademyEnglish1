@@ -141,7 +141,8 @@ function resetMakerStudentView() {
     renderMakerInsight();
     toggleRecentAssignmentsPanel(false);
     const tbody = document.getElementById('invTbody');
-    if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">위의 [+ 학생 선택]을 눌러 학생을 골라 주십시오.</td></tr>';
+    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:40px; text-align:center; color:#999;">위의 [+ 학생 선택]을 눌러 학생을 골라 주십시오.</td></tr>';
+    INV_SRC_SEL.clear(); INV_CHECKED.clear(); INV_FILTERED = []; INV_SRC_TREE = null; renderSrcTree(); _mkRenderActiveChips(null);
     const hint = document.getElementById('invRecentHint');
     if (hint) hint.hidden = true;
     updateInvCount();
@@ -181,24 +182,16 @@ let MAKER_CART = new Set(); // ★ [추가] 출제 바구니 (중복 방지용 S
 let invSortCol = '';        // ★ [추가] 현재 정렬 기준 컬럼
 let invSortAsc = true;      // ★ [추가] 오름차순 여부
 
-// [추가] 테이블 정렬 제어 함수
-function sortInventory(col) {
-    if (invSortCol === col) {
-        invSortAsc = !invSortAsc;
-    } else {
-        invSortCol = col;
-        invSortAsc = true;
-    }
-    renderInventoryTable();
-}
-
 // [추가] 바구니 제어 함수
 function addSelectedToCart() {
-    const selectedCB = document.querySelectorAll('#invTbody .inv-check:checked:not(:disabled)');
-    if (selectedCB.length === 0) {
+    const picked = Array.from(INV_CHECKED).filter(q => !MAKER_CART.has(q));
+    if (picked.length === 0) {
         showCustomAlert('담을 문제가 선택되지 않았습니다.'); return;
     }
-    selectedCB.forEach(cb => MAKER_CART.add(cb.value));
+    // 목록에 보이는 순서대로 담습니다.
+    const order = new Map(INV_FILTERED.map((r, i) => [r.qid, i]));
+    picked.sort((a, b) => (order.has(a) ? order.get(a) : 1e9) - (order.has(b) ? order.get(b) : 1e9)).forEach(q => MAKER_CART.add(q));
+    INV_CHECKED.clear();
     updateCartUI();
     renderCartTable();
     renderInventoryTable(); // 담긴 것은 비활성화 처리하기 위해 다시 그림
@@ -382,25 +375,6 @@ function updateCartUI() {
     renderCartDiffSummary();
 }
 
-// 바구니에 담긴 문항의 평균 난이도와 난이도별 개수
-function renderCartDiffSummary() {
-    const sumEl = document.getElementById('cartDiffSummary');
-    const distEl = document.getElementById('cartDiffDist');
-    const byQid = new Map(INVENTORY_DATA.map(r => [r.qid, r]));
-    const diffs = Array.from(MAKER_CART).map(q => byQid.get(q)).filter(Boolean)
-        .map(r => parseInt(r.difficulty, 10)).filter(d => !isNaN(d));
-    if (!diffs.length) {
-        if (sumEl) sumEl.innerHTML = '';
-        if (distEl) distEl.innerHTML = '';
-        return;
-    }
-    const avg = diffs.reduce((a, d) => a + d, 0) / diffs.length;
-    const cnt = {};
-    diffs.forEach(d => { cnt[d] = (cnt[d] || 0) + 1; });
-    if (sumEl) sumEl.innerHTML = `평균 난이도 <b>${avg.toFixed(1)}</b>`;
-    if (distEl) distEl.innerHTML = Object.keys(cnt).map(Number).sort((a, b) => a - b)
-        .map(d => `<span class="cart-diff-chip"><b>${d}</b>단계 ${cnt[d]}</span>`).join('');
-}
 // [신규] 관리자용 탭 상태 객체
 const invSelState = {
     'm1': { years: new Set(), months: new Set(), details: new Set() },
@@ -449,6 +423,8 @@ function loadInventoryData(opts) {
   });
   invSelState.common.types.clear();
   invSelState.common.difficulties.clear();
+  INV_SRC_SEL.clear();
+  INV_CHECKED.clear();
 
   if (document.getElementById('chkInvExcludeSolved')) document.getElementById('chkInvExcludeSolved').checked = false;
   if (document.getElementById('invMinWrongCount')) document.getElementById('invMinWrongCount').value = '';
@@ -478,8 +454,9 @@ function loadInventoryData(opts) {
 
   // 학생을 불러오면 최근 5회차 과제도 함께 엽니다. (문항 목록과 동시에 받아 기다리는 시간을 늘리지 않음)
   // 오른쪽에 바구니 칸이 생겨 화면이 좁으면 문제 목록이 너무 좁아지므로, 넓은 화면(1600px 이상)에서만 자동으로 엽니다.
-  const recentPanel = document.getElementById('recentAssignmentsPanel');
-  if (window.innerWidth >= 1600 || (recentPanel && recentPanel.style.display !== 'none')) toggleRecentAssignmentsPanel(true);
+  // 최근 과제는 바구니 칸의 [최근 과제] 탭에서 봅니다. 탭이 열려 있을 때만 새 학생 것으로 다시 받습니다.
+  RECENT_LOADED_FOR = '';
+  if (MC_TAB === 'recent') switchCartTab('recent');
 
   fetchInventoryRows(val).then(data => {
     if (requestSequence !== INVENTORY_REQUEST_SEQUENCE || CURRENT_USER !== requestUser || (selectEl && selectEl.value !== val)) return;
@@ -490,7 +467,7 @@ function loadInventoryData(opts) {
     if(INVENTORY_DATA.length === 0) { showCustomAlert('등록된 문제가 없습니다.'); return; }
 
     document.getElementById('inventorySection').style.display = 'flex';
-    if (!keep) initInventoryFilters();
+    if (!keep) initInventoryFilters(); else { _mkBuildSrcTree(); renderSrcTree(); }
     renderMakerInsight();
     renderInventoryTable();
     renderCartTable();
@@ -620,428 +597,467 @@ function initInventoryFilters() {
       updateAll();
   };
 
-  const allYears = distinct('year');
-  const allMonths = distinct('month');
-
   // ★ [핵심] 유형(Type)은 위에서 만든 사용자 지정 순서(sortByType)로 정렬
   const allTypes = [...new Set(INVENTORY_DATA.map(x => x.type).filter(Boolean))].sort(sortByType);
-  
-  // ★ [수정] 연쇄 갱신(Cascading) 로직 - 초기 6개 학년 루프 시 중복 렌더링 방지(skipRender 추가)
-  const updateCascadingFilters = (gId, gName, skipRender = false) => {
-      const state = invSelState[gId];
-      const gradeData = INVENTORY_DATA.filter(x => x.grade === gName);
-
-      // 1. Year: 해당 학년 전체 기준
-      const gYears = [...new Set(gradeData.map(x => String(x.year)).filter(Boolean))].sort();
-
-      // 2. Month: 선택된 Year 기준
-      let monthData = gradeData;
-      if (state.years.size > 0) {
-          monthData = monthData.filter(x => state.years.has(String(x.year)));
-      }
-      const gMonths = [...new Set(monthData.map(x => x.month).filter(Boolean))].sort();
-
-      // 유효하지 않은 Month 선택 해제 (안전장치)
-      const validMonths = new Set(gMonths);
-      for (let m of state.months) {
-          if (!validMonths.has(m)) state.months.delete(m);
-      }
-
-      // 3. Detail: 선택된 Year, Month 기준
-      let detailData = monthData;
-      if (state.months.size > 0) {
-          detailData = detailData.filter(x => state.months.has(x.month));
-      }
-      const gDetails = [...new Set(detailData.map(x => x.detail).filter(Boolean))].sort();
-
-      // 유효하지 않은 Detail 선택 해제 (안전장치)
-      const validDetails = new Set(gDetails);
-      for (let d of state.details) {
-          if (!validDetails.has(d)) state.details.delete(d);
-      }
-
-      // 칩 렌더링 및 콜백 연동
-      renderInvChipsV2('invYearChips_' + gId, gYears, 'years', state, () => updateCascadingFilters(gId, gName, false));
-      renderInvChipsV2('invMonthChips_' + gId, gMonths, 'months', state, () => updateCascadingFilters(gId, gName, false));
-      renderInvChipsV2('invDetailChips_' + gId, gDetails, 'details', state, () => renderInventoryTable());
-
-      // 초기 루프가 아닐 때만 테이블 갱신
-      if (!skipRender) renderInventoryTable();
-  };
-
-  [ 
-    {id: 'm1', name: '중1'}, {id: 'm2', name: '중2'}, {id: 'm3', name: '중3'}, 
-    {id: 'h1', name: '고1'}, {id: 'h2', name: '고2'}, {id: 'h3', name: '고3'} 
-  ].forEach(g => {
-      updateCascadingFilters(g.id, g.name, true); // 초기 루프에서는 렌더링 생략
-  });
-
-  renderInvChipsV2('invTypeChips', allTypes, 'types', invSelState['common']);
-
   // ★ 난이도는 숫자 크기대로 정렬 (1 -> 2 -> 3...)
   const allDiffs = [...new Set(INVENTORY_DATA.map(x => x.difficulty).filter(Boolean))]
       .sort((a, b) => Number(a) - Number(b));
-
-  renderInvChipsV2('invDiffChips', allDiffs, 'difficulties', invSelState['common']);
+  initInventoryChips = () => {
+      renderInvChipsV2('invTypeChips', allTypes, 'types', invSelState['common']);
+      renderInvChipsV2('invDiffChips', allDiffs, 'difficulties', invSelState['common']);
+  };
+  initInventoryChips();
+  // 출처: 학년 → 연도 → 월 → 세부항목 체크 목록
+  _mkBuildSrcTree();
+  renderSrcTree();
+  if (typeof renderMakerPresets === 'function') renderMakerPresets();
 }
+let initInventoryChips = () => {};
 
 // 3. 테이블 렌더링 (OR 필터 적용)
-function renderInventoryTable() {
-  const tbody = document.getElementById('invTbody');
+/* ===================== 과제출제 목록 (A안) =====================
+ * - 출처: 학년 → 연도 → 월 → 세부항목 체크 목록(INV_SRC_SEL, 경로 단위). 위 단계만 체크하면 그 아래 전체.
+ * - 고른 문제는 화면이 아니라 INV_CHECKED(데이터)로 기억합니다 → 100줄씩 나눠 그려도 선택·랜덤·담기가 정확합니다.
+ * - 정렬: 문제(출처 순)·유형·난이도·기록·정답률 중 체크한 것을 이 순서대로 1·2·3… 순위로, 항목마다 오름/내림.
+ * - 정답률: 기준 학생의 최근 30일 첫 시도 정답률(과제출제 '불러오기' 때 함께 받은 자료, 추가 요청 없음).
+ */
+const INV_SRC_SEL = new Set();     // 체크한 출처 경로 (예: "고1", "고1\u00012024", ...)
+const INV_CHECKED = new Set();     // 목록에서 고른 문항 qid
+const INV_PAGE = 100;              // 한 번에 그리는 줄 수
+let INV_SRC_TREE = null;           // { children: Map(name → node) }
+let INV_FILTERED = [];             // 마지막으로 거른·정렬한 목록
+let INV_SHOWN = 0;
+let _invMoreObserver = null;
+const MK_GRADE_ORDER = ['중1', '중2', '중3', '고1', '고2', '고3'];
+const MK_SORT_KEYS = [['src', '문제'], ['type', '유형'], ['diff', '난이도'], ['rec', '기록'], ['rate', '정답률']];
+const MK_SORT = { on: { src: true }, dir: { src: 1, type: 1, diff: 1, rec: 1, rate: -1 } };
+(function () { try { const s = JSON.parse(localStorage.getItem('k2_mk_sort') || 'null'); if (s && s.on && s.dir) { MK_SORT.on = s.on; Object.assign(MK_SORT.dir, s.dir); } } catch (e) {} })();
+function _mkSaveSort() { try { localStorage.setItem('k2_mk_sort', JSON.stringify(MK_SORT)); } catch (e) {} }
 
-  // [추가] 화면을 지우기 전, 현재 체크되어 있는 문제의 qid를 임시 메모리(Set)에 백업할 수 있습니다.
-  const tempChecked = new Set();
-  document.querySelectorAll('#invTbody .inv-check:checked:not(:disabled)').forEach(cb => {
-      tempChecked.add(cb.value);
+const _SEP = '\u0001';
+function _mkRowPath(r) { return [r.grade, r.year, r.month, r.detail].map(v => String(v == null ? '' : v).trim()); }
+function _mkMonthNum(m) { const n = parseInt(String(m).replace(/[^0-9]/g, ''), 10); return isNaN(n) ? 999 : n; }
+function _mkGradeIdx(g) { const i = MK_GRADE_ORDER.indexOf(String(g)); return i < 0 ? 99 : i; }
+
+// 출처 트리(문항 수 포함)를 한 번 만들어 둡니다.
+function _mkBuildSrcTree() {
+  const root = { children: new Map(), count: 0 };
+  INVENTORY_DATA.forEach(r => {
+    let node = root, key = '';
+    const path = _mkRowPath(r);
+    for (let lv = 0; lv < path.length; lv++) {
+      const name = path[lv];
+      if (!name) break;
+      key = key ? key + _SEP + name : name;
+      let ch = node.children.get(name);
+      if (!ch) { ch = { name: name, key: key, level: lv, count: 0, children: new Map() }; node.children.set(name, ch); }
+      ch.count++;
+      node = ch;
+    }
   });
-
-  tbody.innerHTML = '';
-
-  // ★ [추가] 헤더 정렬 아이콘 갱신
-  ['status', 'lastTs', 'assign', 'wrong', 'source', 'type', 'difficulty', 'number'].forEach(col => {
-      const span = document.getElementById('sort_' + col);
-      if (span) {
-          span.innerHTML = (invSortCol === col) ? (invSortAsc ? '▲' : '▼') : '<span style="opacity:0.3">↕</span>';
-          span.style.color = (invSortCol === col) ? '#2b6cb0' : 'inherit';
-      }
+  INV_SRC_TREE = root;
+}
+function _mkSortedChildren(node) {
+  const arr = Array.from(node.children.values());
+  const lv = arr.length ? arr[0].level : 0;
+  return arr.sort((a, b) => {
+    if (lv === 0) return _mkGradeIdx(a.name) - _mkGradeIdx(b.name) || a.name.localeCompare(b.name);
+    if (lv === 1) return String(b.name).localeCompare(String(a.name), undefined, { numeric: true });   // 최근 연도 먼저
+    if (lv === 2) return _mkMonthNum(a.name) - _mkMonthNum(b.name) || a.name.localeCompare(b.name);
+    return a.name.localeCompare(b.name, undefined, { numeric: true });
   });
-
-  // 1. 현재 활성화된 필터가 있는지 확인 (조건부 렌더링 핵심)
-  let hasAnyFilter = false;
-  
-  // (1) 학년별 탭 조건 확인
-  const activeGrades = [];
-  [ 
-    {id: 'm1', name: '중1'}, {id: 'm2', name: '중2'}, {id: 'm3', name: '중3'}, 
-    {id: 'h1', name: '고1'}, {id: 'h2', name: '고2'}, {id: 'h3', name: '고3'} 
-  ].forEach(g => {
-      if (invSelState[g.id].years.size > 0 || invSelState[g.id].months.size > 0 || invSelState[g.id].details.size > 0) {
-          hasAnyFilter = true;
-          activeGrades.push(g.name);
-      }
-  });
-
-  // (2) 공통 조건(유형, 난이도) 확인
-  if (invSelState.common.types.size > 0 || invSelState.common.difficulties.size > 0) {
-      hasAnyFilter = true;
-  }
-
-  const recentHint = document.getElementById('invRecentHint');
-  if (recentHint) recentHint.hidden = true;
-
-  // ★ 필터가 하나도 없으면 그리지 않고 안내 문구만 표시 (속도 최적화)
-  if (!hasAnyFilter) {
-    const tr = document.createElement('tr');
-    // colspan을 9로 수정 (상태, 최근풀이, 배부, 오답, 출처, 유형, 난이도, 번호, 체크박스 총 9칸)
-    // height: 50vh를 주어 화면 높이의 절반 정도 공간을 확보하고 세로 중앙 정렬을 적용합니다.
-    tr.innerHTML = `
-      <td colspan="9" style="height: 50vh; vertical-align: middle; text-align: center; color: #6b7280; border: none;">
-          <div style="display: inline-block; transform: translateY(-20px);">
-              <div style="font-size: 40px; margin-bottom: 15px;">🔍</div>
-              <b style="font-size: 18px; color: #374151;">원하는 조건을 선택해 주십시오.</b><br>
-              <div style="font-size: 14px; margin-top: 10px; line-height: 1.6;">
-                  왼쪽 사이드바에서 학년, 년도, 유형 등을 클릭하면<br>
-                  조건에 맞는 문제 목록이 여기에 표시됩니다.
-              </div>
-          </div>
-      </td>`;
-    tbody.appendChild(tr);
-    updateInvCount();
-    return;
+}
+function renderSrcTree() {
+  const box = document.getElementById('invSrcTree');
+  if (!box) return;
+  if (!INV_SRC_TREE || !INV_SRC_TREE.children.size) { box.innerHTML = '<div class="mk-tree-empty">학생을 고르면 출처 목록이 나옵니다.</div>'; return; }
+  const LV = ['학년', '연도', '월', '세부'];
+  const draw = (node, depth) => _mkSortedChildren(node).map(ch => {
+    const on = INV_SRC_SEL.has(ch.key);
+    const kids = on && ch.children.size ? `<div class="mk-tree-kids" role="group" aria-label="${escapeAttr(ch.name)} ${LV[depth + 1] || ''}">${draw(ch, depth + 1)}</div>` : '';
+    return `<div class="mk-tree-node lv${depth}">
+      <label class="mk-tree-row${on ? ' on' : ''}"><input type="checkbox" data-src="${escapeAttr(ch.key)}"${on ? ' checked' : ''}>
+        <span class="mk-tree-name">${escapeHTML(ch.name)}</span><span class="mk-tree-cnt">${ch.count}</span></label>${kids}</div>`;
+  }).join('');
+  box.innerHTML = draw(INV_SRC_TREE, 0);
+}
+function _mkOnSrcChange(e) {
+  const cb = e.target.closest('input[data-src]');
+  if (!cb) return;
+  const key = cb.dataset.src;
+  if (cb.checked) INV_SRC_SEL.add(key);
+  else Array.from(INV_SRC_SEL).forEach(k => { if (k === key || k.indexOf(key + _SEP) === 0) INV_SRC_SEL.delete(k); });
+  renderSrcTree();
+  renderInventoryTable();
+}
+// 실제로 거르는 데 쓰는 경로: 체크했고, 그 아래를 하나도 체크하지 않은 것
+function _mkEffectiveSrc() {
+  const sel = Array.from(INV_SRC_SEL);
+  return new Set(sel.filter(k => !sel.some(o => o !== k && o.indexOf(k + _SEP) === 0)));
 }
 
- // 2. 필터링 로직 (조건이 있을 때만 수행)
-  const hasGradeFilter = activeGrades.length > 0;
-  const numQuery = (document.getElementById('invNumberSearch') ? document.getElementById('invNumberSearch').value.trim().toLowerCase() : '');
-  const excludeSolved = document.getElementById('chkInvExcludeSolved') ? document.getElementById('chkInvExcludeSolved').checked : false;
-  const excludeDescriptive = document.getElementById('chkExcludeDescriptive') ? document.getElementById('chkExcludeDescriptive').checked : false;
-  const excludeRecent = document.getElementById('chkExcludeRecentAsg') ? document.getElementById('chkExcludeRecentAsg').checked : false;
+// 번호 검색(예전 방식 그대로): h1_25_03_21 → '21' 또는 '21_001'로 찾기
+function _mkNumMatch(row, q) {
+  const rawNum = String(row.number || '').toLowerCase();
+  if (rawNum.includes('_')) {
+    const parts = rawNum.split('_');
+    if (parts.length >= 4) {
+      if (parts[3] === q) return true;
+      if (parts.slice(3).join('_') === q) return true;
+    }
+  }
+  return rawNum === q;
+}
+function _mkSourceText(r) { return [r.grade, r.year, r.month, r.detail].filter(Boolean).join(' '); }
+// 검색: 쉼표로 나눈 묶음 중 하나라도 맞으면 통과. 묶음 안의 낱말은 번호이거나 출처 글자에 들어 있어야 함
+function _mkSearchMatch(row, groups) {
+  if (!groups.length) return true;
+  const src = _mkSourceText(row).toLowerCase().replace(/\s+/g, ' ');
+  return groups.some(g => g.every(t => _mkNumMatch(row, t) || src.includes(t) || String(row.type || '').toLowerCase().includes(t)));
+}
+function _mkSearchGroups() {
+  const el = document.getElementById('invNumberSearch');
+  const q = el ? el.value.trim().toLowerCase() : '';
+  if (!q) return [];
+  return q.split(',').map(g => g.trim().split(/\s+/).filter(Boolean)).filter(g => g.length);
+}
+
+function _mkQidNo(r) {
+  const parts = String(r.number || '').split('_');
+  const n = parseInt(parts[3], 10);
+  return [isNaN(n) ? 9999 : n, parts.slice(4).join('_')];
+}
+function _mkRecRank(r) {
+  if (r.isSolved && !(r.wrongCount > 0)) return 3;  // 한 번에 정답
+  if (r.isSolved) return 2;                         // 틀렸다가 고침
+  if (r.wrongCount > 0) return 1;                   // 오답(미완)
+  return 0;                                         // 안 품
+}
+function _mkRate(r) {
+  const ins = MAKER_INSIGHT;
+  const q = ins && ins.qrecent ? ins.qrecent[r.qid] : null;
+  if (!q || !q[0]) return null;
+  return { rate: Math.round(q[1] / q[0] * 100), t: q[0], c: q[1] };
+}
+function _mkCompare(a, b) {
+  for (const [key] of MK_SORT_KEYS) {
+    if (!MK_SORT.on[key]) continue;
+    const d = MK_SORT.dir[key] || 1;
+    let v = 0;
+    if (key === 'src') {
+      v = _mkGradeIdx(a.grade) - _mkGradeIdx(b.grade)
+        || String(a.year).localeCompare(String(b.year), undefined, { numeric: true })
+        || _mkMonthNum(a.month) - _mkMonthNum(b.month)
+        || String(a.detail || '').localeCompare(String(b.detail || ''))
+        || (_mkQidNo(a)[0] - _mkQidNo(b)[0]) || String(_mkQidNo(a)[1]).localeCompare(String(_mkQidNo(b)[1]), undefined, { numeric: true });
+    } else if (key === 'type') {
+      v = String(a.type || '').localeCompare(String(b.type || ''));
+    } else if (key === 'diff') {
+      v = (Number(a.difficulty) || 0) - (Number(b.difficulty) || 0);
+    } else if (key === 'rec') {
+      v = _mkRecRank(a) - _mkRecRank(b) || String(a.lastTs || '').localeCompare(String(b.lastTs || ''));
+    } else if (key === 'rate') {
+      const ra = _mkRate(a), rb = _mkRate(b);
+      if (!ra && !rb) v = 0; else if (!ra) return 1; else if (!rb) return -1;   // 기록 없는 문항은 항상 뒤로
+      else v = ra.rate - rb.rate;
+    }
+    if (v) return v * d;
+  }
+  return 0;
+}
+
+function renderSortBar() {
+  const box = document.getElementById('invSortBar');
+  if (!box) return;
+  box.innerHTML = '<span class="mk-sort-label">정렬</span>' + MK_SORT_KEYS.map(([k, label], i) => {
+    const on = !!MK_SORT.on[k];
+    const rank = on ? MK_SORT_KEYS.filter(([kk]) => MK_SORT.on[kk]).findIndex(([kk]) => kk === k) + 1 : 0;
+    return `<span class="mk-sort-item${on ? ' on' : ''}">
+      <label><input type="checkbox" data-sort-key="${k}"${on ? ' checked' : ''}>${rank ? `<b>${rank}</b>` : ''}${label}</label>
+      <button type="button" data-sort-dir="${k}" aria-label="${label} ${MK_SORT.dir[k] > 0 ? '오름차순' : '내림차순'}" title="눌러서 오름/내림 바꾸기">${MK_SORT.dir[k] > 0 ? '▲' : '▼'}</button></span>`;
+  }).join('');
+}
+function _mkOnSortClick(e) {
+  const cb = e.target.closest('input[data-sort-key]');
+  const db = e.target.closest('button[data-sort-dir]');
+  if (cb) {
+    MK_SORT.on[cb.dataset.sortKey] = cb.checked;
+    if (!MK_SORT_KEYS.some(([k]) => MK_SORT.on[k])) MK_SORT.on.src = true;   // 하나도 없으면 문제 순
+  } else if (db) {
+    const k = db.dataset.sortDir;
+    MK_SORT.dir[k] = -(MK_SORT.dir[k] || 1);
+    MK_SORT.on[k] = true;
+  } else return;
+  _mkSaveSort();
+  renderSortBar();
+  renderInventoryTable();
+}
+// 표 머리글을 누르면 그 항목을 정렬에 넣고, 이미 들어 있으면 오름/내림을 바꿉니다.
+function mkSortHeader(k) {
+  if (MK_SORT.on[k]) MK_SORT.dir[k] = -(MK_SORT.dir[k] || 1); else MK_SORT.on[k] = true;
+  _mkSaveSort(); renderSortBar(); renderInventoryTable();
+}
+// 예전 호출 호환
+function sortInventory(col) {
+  const map = { source: 'src', number: 'src', type: 'type', difficulty: 'diff', status: 'rec', lastTs: 'rec', wrong: 'rec', assign: 'rec' };
+  mkSortHeader(map[col] || 'src');
+}
+
+// 목록 위에 켜진 조건 칩
+function _mkRenderActiveChips(count) {
+  const box = document.getElementById('invActiveChips');
+  if (!box) return;
+  const chips = [];
+  Array.from(_mkEffectiveSrc()).forEach(k => chips.push({ kind: 'src', val: k, label: k.split(_SEP).join(' ') }));
+  const types = Array.from(invSelState.common.types);
+  if (types.length) chips.push({ kind: 'type', val: '', label: types.length > 3 ? `유형 ${types.length}개` : types.join('·') });
+  const diffs = Array.from(invSelState.common.difficulties).map(Number).sort((a, b) => a - b);
+  if (diffs.length) chips.push({ kind: 'diff', val: '', label: '난이도 ' + diffs.join(',') });
+  box.innerHTML = chips.map(c => `<span class="mk-ac-chip">${escapeHTML(c.label)}<button type="button" aria-label="조건 끄기" data-ac-kind="${c.kind}" data-ac-val="${escapeAttr(c.val)}">×</button></span>`).join('');
+  const cnt = document.getElementById('invMatchCount');
+  if (cnt) cnt.innerHTML = count == null ? '' : `조건에 맞는 문제 <b>${count}</b>개`;
+}
+function _mkOnActiveChipClick(e) {
+  const b = e.target.closest('button[data-ac-kind]');
+  if (!b) return;
+  const kind = b.dataset.acKind;
+  if (kind === 'src') {
+    const key = b.dataset.acVal;
+    Array.from(INV_SRC_SEL).forEach(k => { if (k === key || k.indexOf(key + _SEP) === 0) INV_SRC_SEL.delete(k); });
+    renderSrcTree();
+  } else if (kind === 'type') { invSelState.common.types.clear(); initInventoryChips(); }
+  else if (kind === 'diff') { invSelState.common.difficulties.clear(); initInventoryChips(); }
+  renderInventoryTable();
+}
+
+function resetMakerFilters() {
+  INV_SRC_SEL.clear();
+  invSelState.common.types.clear();
+  invSelState.common.difficulties.clear();
+  INV_CHECKED.clear();
+  const s = document.getElementById('invNumberSearch'); if (s) s.value = '';
+  const w = document.getElementById('invMinWrongCount'); if (w) w.value = '';
+  renderSrcTree();
+  initInventoryChips();
+  renderInventoryTable();
+}
+
+// 3. 표 그리기 (거르기 → 정렬 → 처음 100줄, 스크롤하면 100줄씩 더)
+function renderInventoryTable() {
+  const tbody = document.getElementById('invTbody');
+  if (!tbody) return;
+  const recentHint = document.getElementById('invRecentHint');
+  if (recentHint) recentHint.hidden = true;
+  _mkUpdateHeadArrows();
+
+  if (!INVENTORY_DATA.length) { updateInvCount(); return; }
+
+  const effSrc = _mkEffectiveSrc();
+  const hasAnyFilter = effSrc.size > 0 || invSelState.common.types.size > 0 || invSelState.common.difficulties.size > 0;
+  if (!hasAnyFilter) {
+    INV_FILTERED = []; INV_SHOWN = 0;
+    tbody.innerHTML = `<tr><td colspan="6" class="mk-empty-guide">
+          <div style="font-size:40px; margin-bottom:12px;">🔍</div>
+          <b>원하는 조건을 선택해 주십시오.</b>
+          <div>왼쪽에서 출처(학년·연도·월), 난이도, 유형을 고르면 문제 목록이 여기에 표시됩니다.</div></td></tr>`;
+    _mkRenderActiveChips(null);
+    updateInvCount();
+    return;
+  }
+
+  const groups = _mkSearchGroups();
+  const excludeSolved = !!(document.getElementById('chkInvExcludeSolved') || {}).checked;
+  const excludeDescriptive = !!(document.getElementById('chkExcludeDescriptive') || {}).checked;
+  const excludeRecent = !!(document.getElementById('chkExcludeRecentAsg') || {}).checked;
+  const minWrong = parseInt((document.getElementById('invMinWrongCount') || {}).value, 10) || 0;
+  const types = invSelState.common.types, diffs = invSelState.common.difficulties;
   let hiddenRecent = 0;
- // ★ [추가] 체크박스 상태 가져오기
-  const minWrongStr = document.getElementById('invMinWrongCount') ? document.getElementById('invMinWrongCount').value : '0';
-  const minWrong = parseInt(minWrongStr, 10) || 0;
-  
+
   const filtered = INVENTORY_DATA.filter(row => {
-    // ★ [추가] '안 푼 문제만' 체크 시, 완료(isSolved)된 문제는 제외
     if (excludeSolved && row.isSolved) return false;
     if (excludeDescriptive && String(row.type).includes('서술형')) return false;
-
-    // [추가] 오답 횟수 필터 (입력된 횟수보다 실제 틀린 횟수가 적으면 제외)
     if (minWrong > 0 && (row.wrongCount || 0) < minWrong) return false;
-
-    // [추가] 번호 검색 필터 적용 (쉼표 및 공백으로 여러 개 검색 가능)
-    if (numQuery) {
-        const queries = numQuery.split(/[,\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
-        const matchNum = queries.some(q => {
-            const rawNum = String(row.number || '').toLowerCase();
-            
-            // 1. 최신 ID 형식 (예: h1_25_03_21 또는 h1_25_03_21_001)
-            if (rawNum.includes('_')) {
-                const parts = rawNum.split('_');
-                if (parts.length >= 4) {
-                    const baseNum = parts[3]; // 네 번째 값(원본 문항 번호)
-                    
-                    // 사용자가 '21'만 검색 -> 원본 및 해당 번호의 변형문제 모두 일치
-                    if (baseNum === q) return true;
-                    // 사용자가 '21_001'처럼 변형 번호까지 지정해서 검색 -> 정확히 일치
-                    if (parts.slice(3).join('_') === q) return true; 
-                }
-            }
-            
-            // 2. 언더바가 없는 구형 데이터이거나 예외 규격일 경우 (완전 일치로 엄격하게 검사)
-            return rawNum === q;
-        });
-        
-        if (!matchNum) return false;
+    if (types.size && !types.has(row.type)) return false;
+    if (diffs.size && !diffs.has(row.difficulty)) return false;
+    if (effSrc.size) {
+      const p = _mkRowPath(row);
+      let k = '', ok = false;
+      for (let i = 0; i < p.length && p[i]; i++) { k = k ? k + _SEP + p[i] : p[i]; if (effSrc.has(k)) { ok = true; break; } }
+      if (!ok) return false;
     }
-    // 공통 필터 체크
-    if(invSelState.common.types.size && !invSelState.common.types.has(row.type)) return false;
-    if(invSelState.common.difficulties.size && !invSelState.common.difficulties.has(row.difficulty)) return false;
-
-    // 학년별 필터 체크
-    if(hasGradeFilter) {
-        if(!activeGrades.includes(row.grade)) return false;
-        
-        let gradeId = row.grade;
-        if(row.grade && row.grade.startsWith('중')) {
-            gradeId = 'm' + row.grade.replace('중', '');
-        } else if(row.grade && row.grade.startsWith('고')) {
-            gradeId = 'h' + row.grade.replace('고', '');
-        }
-        
-        const s = invSelState[gradeId];
-        if(s && s.years.size && !s.years.has(String(row.year))) return false;
-        if(s && s.months.size && !s.months.has(row.month)) return false;
-        if(s && s.details.size && !s.details.has(row.detail)) return false;
-    }
-    // 최근 배부 제외는 다른 조건을 모두 통과한 문제만 셉니다(숨긴 개수 안내용). 바구니에 이미 담은 문제는 그대로 보입니다.
+    if (!_mkSearchMatch(row, groups)) return false;
+    // 최근 배부 제외는 다른 조건을 모두 통과한 문제만 셉니다. 바구니에 이미 담은 문제는 그대로 보입니다.
     if (excludeRecent && !MAKER_CART.has(row.qid) && mkRecentAssignInfo(row).length) { hiddenRecent++; return false; }
     return true;
   });
+  filtered.sort(_mkCompare);
+  INV_FILTERED = filtered;
+  // 목록에서 빠진 문제는 선택도 풉니다.
+  const visible = new Set(filtered.map(r => r.qid));
+  Array.from(INV_CHECKED).forEach(q => { if (!visible.has(q)) INV_CHECKED.delete(q); });
 
   if (recentHint && hiddenRecent > 0) {
     const names = SELECTED_MULTI_STUDENTS.map(st => st.name).join('·');
     recentHint.innerHTML = `최근 ${MK_RECENT_DAYS}일 안에 ${escapeHTML(names)}에게 낸 문제 ${hiddenRecent}개를 숨겼습니다. <button type="button" onclick="document.getElementById('chkExcludeRecentAsg').checked=false; renderInventoryTable();">숨긴 문제 보기</button>`;
     recentHint.hidden = false;
   }
+  _mkRenderActiveChips(filtered.length);
 
-  if (filtered.length === 0) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td colspan="9" style="padding:20px; text-align:center;">조건에 맞는 문제가 없습니다.</td>`;
-      tbody.appendChild(tr);
-      updateInvCount();
-      return;
+  tbody.innerHTML = '';
+  INV_SHOWN = 0;
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:24px; text-align:center; color:#6b7280;">조건에 맞는 문제가 없습니다.</td></tr>';
+    updateInvCount();
+    return;
   }
-
-  // ★ [추가] 렌더링 전 필터링된 배열 정렬 로직 적용
-  if (invSortCol) {
-      filtered.sort((a, b) => {
-          let valA = '', valB = '';
-          
-          if (invSortCol === 'status') {
-              valA = a.isSolved ? (a.wrongCount > 0 ? 1 : 2) : 0;
-              valB = b.isSolved ? (b.wrongCount > 0 ? 1 : 2) : 0;
-          } else if (invSortCol === 'lastTs') {
-          // [추가] 날짜 비교 로직: 날짜가 없으면 가장 뒤로 보냄
-          valA = a.lastTs ? new Date(a.lastTs).getTime() : 0;
-          valB = b.lastTs ? new Date(b.lastTs).getTime() : 0;
-          } else if (invSortCol === 'assign') {
-              valA = a.assignCount || 0;
-              valB = b.assignCount || 0;
-          } else if (invSortCol === 'wrong') {
-              valA = a.wrongCount || 0;
-              valB = b.wrongCount || 0;
-          } else if (invSortCol === 'source') {
-              valA = [a.grade, a.year, a.month, a.detail].filter(Boolean).join(' ');
-              valB = [b.grade, b.year, b.month, b.detail].filter(Boolean).join(' ');
-          } else if (invSortCol === 'type') {
-              valA = a.type || '';
-              valB = b.type || '';
-          } else if (invSortCol === 'difficulty') {
-              valA = Number(a.difficulty) || 0;
-              valB = Number(b.difficulty) || 0;
-          } else if (invSortCol === 'number') {
-              // 번호는 가급적 숫자 크기 비교를 유도, 실패 시 문자열 비교
-              const numA = parseFloat(String(a.number).replace(/[^0-9.]/g, ''));
-              const numB = parseFloat(String(b.number).replace(/[^0-9.]/g, ''));
-              valA = isNaN(numA) ? (a.number || a.qid) : numA;
-              valB = isNaN(numB) ? (b.number || b.qid) : numB;
-          }
-
-          if (typeof valA === 'number' && typeof valB === 'number') {
-              return invSortAsc ? valA - valB : valB - valA;
-          } else {
-              const strA = String(valA).toLowerCase();
-              const strB = String(valB).toLowerCase();
-              if (strA < strB) return invSortAsc ? -1 : 1;
-              if (strA > strB) return invSortAsc ? 1 : -1;
-              return 0;
-          }
-      });
-  }
-
-  // 3. 고속 렌더링 (DocumentFragment 사용)
-  // 메모리에 가상의 공간을 만들어 다 붙인 뒤, 화면에는 한 번만 전송합니다.
-  const fragment = document.createDocumentFragment();
-
-  filtered.forEach(row => {
-    const tr = document.createElement('tr');
-    tr.style.borderBottom = '1px solid #eee';
-    
-    // [수정] 오답 횟수를 기반으로 3가지 색상 분기 처리
-    let statusBadge = '';
-    if (row.isSolved) {
-        if (row.wrongCount > 0) {
-            statusBadge = '<span style="color:#d97706; font-weight:bold; font-size:11px;">[완료]</span>'; // 오답 이력 있음 (노란/주황색)
-        } else {
-            statusBadge = '<span style="color:#059669; font-weight:bold; font-size:11px;">[완료]</span>'; // 한 번에 맞힘 (녹색)
-        }
-    } else {
-        statusBadge = '<span style="color:#dc2626; font-weight:bold; font-size:11px;">[미완]</span>'; // 미완료 (빨간색)
-    }
-
-    // [추가] 오답 횟수 뱃지 (0회면 '-' 처리)
-    let wrongCountBadge = row.wrongCount > 0 
-        ? `<span style="color:#dc2626; font-weight:bold; font-size:11px;">${row.wrongCount}회</span>` 
-        : '<span style="color:#9ca3af; font-size:11px;">-</span>';
-
-    // [신규] 배부 횟수 뱃지 (파란색)
-    let assignCountBadge = (row.assignCount && row.assignCount > 0)
-        ? `<span style="color:#2563eb; font-weight:bold; font-size:11px;">${row.assignCount}회</span>`
-        : '<span style="color:#9ca3af; font-size:11px;">-</span>';
-    
-    const sourceStr = [row.grade, row.year, row.month, row.detail].filter(Boolean).join(' ');
-
-    const isAlreadyInCart = MAKER_CART.has(row.qid);
-    const isTempChecked = tempChecked.has(row.qid); // [추가] 백업된 체크 상태를 확인하는 과정이 포함될 수 있습니다.
-    
-    // [수정] 비활성화(disabled) 속성과 체크(checked) 속성을 분리하여 적용합니다.
-    const disableAttr = isAlreadyInCart ? 'disabled' : '';
-    const checkedAttr = (isAlreadyInCart || isTempChecked) ? 'checked' : '';
-    const opacityStyle = isAlreadyInCart ? 'opacity: 0.5; background: #f3f4f6;' : '';
-
-    tr.style.cssText = `border-bottom: 1px solid #eee; ${opacityStyle}`;
-    const recentInfo = mkRecentAssignInfo(row);
-    if (recentInfo.length && !isAlreadyInCart) tr.style.background = '#fffbeb';
-    const recentTag = recentInfo.length ? `<span class="mk-recent-tag" title="${escapeAttr(recentInfo.map(r => r.name + ' ' + _mkMd(r.ts)).join(', '))}">최근 배부</span>` : '';
-    tr.innerHTML = `
-      <td style="padding:8px; text-align:center;">
-        <input type="checkbox" class="inv-check" 
-               value="${row.qid}" 
-               data-solved="${row.isSolved}"
-               data-group="${row.groupHash}"
-               ${disableAttr} ${checkedAttr}> 
-      </td>
-      <td style="padding:8px; text-align:center;">${statusBadge}</td>
-      <td style="padding:8px; text-align:center; font-size:11px; color:#6b7280;">${row.lastTs || '-'}</td>
-      <td style="padding:8px; text-align:center;">${assignCountBadge}</td>
-      <td style="padding:8px; text-align:center;">${wrongCountBadge}</td>
-      <td style="padding:8px;">${sourceStr} ${recentTag}</td>
-      <td style="padding:8px;">${row.type || '-'}</td>
-      <td style="padding:8px;">${row.difficulty || '-'}</td> 
-      <td style="padding:8px; color:#666;">${row.number || row.qid.substring(0,5)+'...'}</td>
-    `;
-    
-    tr.addEventListener('click', (e) => {
-      let targetCheckbox = e.target;
-      if (e.target.tagName !== 'INPUT') {
-          targetCheckbox = tr.querySelector('.inv-check');
-          targetCheckbox.checked = !targetCheckbox.checked;
-      }
-      
-      const groupKey = targetCheckbox.getAttribute('data-group');
-      const isChecked = targetCheckbox.checked;
-
-      if (groupKey) {
-          const siblings = document.querySelectorAll(`.inv-check[data-group="${groupKey}"]`);
-          siblings.forEach(sib => {
-              sib.checked = isChecked; 
-          });
-      }
-      updateInvCount();
-    });
-    
-    fragment.appendChild(tr); // 가상 메모리에 추가 (렉 없음)
-  });
-
-  tbody.appendChild(fragment); // 실제 화면 갱신 (딱 1번 수행)
+  _mkRenderMore();
   updateInvCount();
 }
 
-// 4. 개수 업데이트 및 선택 로직
+function _mkRowHtml(row) {
+  const inCart = MAKER_CART.has(row.qid);
+  const checked = inCart || INV_CHECKED.has(row.qid);
+  const no = _mkQidNo(row);
+  const numLabel = row.number ? (String(row.number).split('_').slice(3).join('_') || row.number) : '';
+  const recentInfo = mkRecentAssignInfo(row);
+  const recentTag = recentInfo.length ? `<span class="mk-recent-tag" title="${escapeAttr(recentInfo.map(r => r.name + ' ' + _mkMd(r.ts)).join(', '))}">최근 배부</span>` : '';
+  const rk = _mkRecRank(row);
+  const date = row.lastTs ? `<span class="mk-rec-date">${escapeHTML(String(row.lastTs).slice(5).replace('-', '/'))}</span>` : '';
+  const rec = rk === 3 ? `<span class="mk-rec ok">정답</span>${date}`
+    : rk === 2 ? `<span class="mk-rec fix">오답 ${row.wrongCount}회→정답</span>${date}`
+    : rk === 1 ? `<span class="mk-rec bad">오답 ${row.wrongCount}회</span>${date}`
+    : '<span class="mk-rec none">안 품</span>';
+  const asg = row.assignCount > 0 ? `<span class="mk-rec-asg">배부 ${row.assignCount}</span>` : '';
+  const rt = _mkRate(row);
+  const rate = rt ? `<span class="mk-rate ${rt.rate >= 80 ? 'hi' : rt.rate >= 50 ? 'mid' : 'lo'}" title="최근 30일 ${rt.t}번 중 ${rt.c}번 정답">${rt.rate}%</span>` : '<span class="mk-rate none">-</span>';
+  const cls = ['inv-row'];
+  if (inCart) cls.push('in-cart'); else if (checked) cls.push('checked');
+  if (recentInfo.length && !inCart) cls.push('recent');
+  return `<tr class="${cls.join(' ')}" data-qid="${escapeAttr(row.qid)}">
+      <td class="c-chk"><input type="checkbox" class="inv-check" value="${escapeAttr(row.qid)}" data-group="${escapeAttr(row.groupHash)}"${inCart ? ' disabled' : ''}${checked ? ' checked' : ''} aria-label="선택"></td>
+      <td class="c-src" title="${escapeAttr(_mkSourceText(row) + (numLabel ? ' ' + numLabel + '번' : ''))}">${numLabel ? `<b class="mk-no">${escapeHTML(numLabel)}번</b> ` : ''}${recentTag}${inCart ? '<span class="mk-incart">바구니</span> ' : ''}<span class="mk-src">${escapeHTML(_mkSourceText(row))}</span></td>
+      <td class="c-type">${escapeHTML(row.type || '-')}</td>
+      <td class="c-diff">${escapeHTML(String(row.difficulty || '-'))}</td>
+      <td class="c-rec">${rec}${asg}</td>
+      <td class="c-rate">${rate}</td>
+    </tr>`;
+}
+function _mkRenderMore() {
+  const tbody = document.getElementById('invTbody');
+  if (!tbody) return;
+  const old = tbody.querySelector('tr.inv-more');
+  if (old) old.remove();
+  const end = Math.min(INV_FILTERED.length, INV_SHOWN + INV_PAGE);
+  tbody.insertAdjacentHTML('beforeend', INV_FILTERED.slice(INV_SHOWN, end).map(_mkRowHtml).join(''));
+  INV_SHOWN = end;
+  if (INV_SHOWN < INV_FILTERED.length) {
+    tbody.insertAdjacentHTML('beforeend', `<tr class="inv-more"><td colspan="6"><button type="button" onclick="_mkRenderMore()">${INV_FILTERED.length - INV_SHOWN}개 더 보기</button></td></tr>`);
+    const more = tbody.querySelector('tr.inv-more');
+    if (window.IntersectionObserver) {
+      if (_invMoreObserver) _invMoreObserver.disconnect();
+      _invMoreObserver = new IntersectionObserver(ents => { if (ents.some(x => x.isIntersecting)) { _invMoreObserver.disconnect(); _mkRenderMore(); } },
+        { root: document.querySelector('#inventorySection .inv-table-wrap'), rootMargin: '300px' });
+      _invMoreObserver.observe(more);
+    }
+  }
+}
+function _mkUpdateHeadArrows() {
+  document.querySelectorAll('#invTable th[data-sort-head]').forEach(th => {
+    const k = th.dataset.sortHead;
+    const sp = th.querySelector('.mk-th-arrow');
+    if (sp) sp.textContent = MK_SORT.on[k] ? (MK_SORT.dir[k] > 0 ? '▲' : '▼') : '↕';
+    th.classList.toggle('on', !!MK_SORT.on[k]);
+  });
+}
+
+// 줄 누르기: 같은 지문 세트(그룹)는 함께 고르고 풉니다.
+function _mkOnRowClick(e) {
+  const tr = e.target.closest('tr.inv-row');
+  if (!tr) return;
+  const cb = tr.querySelector('.inv-check');
+  if (!cb || cb.disabled) return;
+  if (e.target !== cb) cb.checked = !cb.checked;
+  const on = cb.checked;
+  const g = cb.dataset.group;
+  const ids = g ? INV_FILTERED.filter(r => String(r.groupHash) === g && !MAKER_CART.has(r.qid)).map(r => r.qid) : [cb.value];
+  ids.forEach(q => { if (on) INV_CHECKED.add(q); else INV_CHECKED.delete(q); });
+  document.querySelectorAll('#invTbody tr.inv-row').forEach(row => {
+    const q = row.dataset.qid;
+    if (!ids.includes(q)) return;
+    const c = row.querySelector('.inv-check'); if (c) c.checked = on;
+    row.classList.toggle('checked', on);
+  });
+  updateInvCount();
+}
+function _mkRepaintChecks() {
+  document.querySelectorAll('#invTbody tr.inv-row').forEach(row => {
+    const c = row.querySelector('.inv-check');
+    if (!c || c.disabled) return;
+    const on = INV_CHECKED.has(row.dataset.qid);
+    c.checked = on; row.classList.toggle('checked', on);
+  });
+  updateInvCount();
+}
+
+// 4. 개수 업데이트
 function updateInvCount() {
-  const count = document.querySelectorAll('.inv-check:checked').length;
-  document.getElementById('invSelectedCount').innerText = count;
+  const el = document.getElementById('invSelectedCount');
+  if (el) el.innerText = INV_CHECKED.size;
+  const all = document.getElementById('invCheckAll');
+  if (all) {
+    const cand = INV_FILTERED.filter(r => !MAKER_CART.has(r.qid));
+    all.checked = cand.length > 0 && cand.every(r => INV_CHECKED.has(r.qid));
+  }
 }
 
 // 버튼 이벤트 바인딩 함수 (initUI에서 호출)
 function bindInventoryEvents() {
-    // 1. 전체 목록 불러오기 버튼
     const btnLoad = document.getElementById('btnLoadInventory');
-    if(btnLoad) btnLoad.onclick = loadInventoryData;
+    if (btnLoad) btnLoad.onclick = loadInventoryData;
 
-    // 2. 테이블 헤더 체크박스 (전체 선택/해제)
+    // 머리줄 체크: 지금 목록(조건에 맞는 전체, 바구니에 담긴 것 제외)을 모두 고르거나 풉니다.
     const chkAll = document.getElementById('invCheckAll');
-    if(chkAll) chkAll.onchange = function(e) {
-        const isChecked = e.target.checked;
-        document.querySelectorAll('#invTbody .inv-check').forEach(cb => cb.checked = isChecked);
-        updateInvCount();
+    if (chkAll) chkAll.onchange = function (e) {
+        const on = e.target.checked;
+        INV_FILTERED.forEach(r => { if (MAKER_CART.has(r.qid)) return; if (on) INV_CHECKED.add(r.qid); else INV_CHECKED.delete(r.qid); });
+        _mkRepaintChecks();
     };
 
-    // 3. 테이블 내부 체크박스 변경 감지
     const tbody = document.getElementById('invTbody');
-    if(tbody) tbody.onchange = function(e) {
-        if(e.target.classList.contains('inv-check')) updateInvCount();
-    };
+    if (tbody) { tbody.onchange = null; tbody.onclick = _mkOnRowClick; }
 
-    // 4. [단순화됨] 랜덤 선택 로직 (지문 그룹 유지하며 N개 선택)
+    const tree = document.getElementById('invSrcTree');
+    if (tree) tree.onchange = _mkOnSrcChange;
+    const sortBar = document.getElementById('invSortBar');
+    if (sortBar) { sortBar.onclick = _mkOnSortClick; renderSortBar(); }
+    const ac = document.getElementById('invActiveChips');
+    if (ac) ac.onclick = _mkOnActiveChipClick;
+    const search = document.getElementById('invNumberSearch');
+    if (search) {
+        let t = null;
+        search.oninput = () => { clearTimeout(t); t = setTimeout(renderInventoryTable, 200); };
+    }
+
+    // 랜덤 선택: 지금 목록 전체에서 지문 세트 단위로 N문항 고르기(바구니에 담긴 것 제외)
     const btnRandom = document.getElementById('btnInvRandom');
-    if(btnRandom) btnRandom.onclick = function() {
-        // 입력된 개수 가져오기
-        const n = parseInt(document.getElementById('invRandomCount').value || 20);
-        
-        const onlyUnsolved = document.getElementById('chkInvExcludeSolved').checked;
-        const allBoxes = Array.from(document.querySelectorAll('#invTbody .inv-check'));
-        
-        // 일단 모두 해제
-        allBoxes.forEach(cb => cb.checked = false);
-
-        // 후보군 필터링 (안 푼 문제만 보기 체크 시)
-        let candidates = allBoxes;
-        if(onlyUnsolved) {
-            candidates = candidates.filter(cb => cb.getAttribute('data-solved') === 'false');
-        }
-
-        if(candidates.length === 0) {
-            showCustomAlert(onlyUnsolved ? '조건에 맞는(안 푼) 문제가 없습니다.' : '목록에 문제가 없습니다.');
-            updateInvCount();
-            return;
-        }
-
-        // --- 그룹(지문) 단위 묶기 ---
-        const groups = {};
-        candidates.forEach(cb => {
-            // 그룹ID가 있으면 그걸 쓰고, 없으면 자기 자신 ID 사용
-            const gKey = cb.getAttribute('data-group') || cb.value; 
-            if(!groups[gKey]) groups[gKey] = [];
-            groups[gKey].push(cb);
-        });
-
-        // --- 셔플 및 선택 ---
-        const keys = Object.keys(groups);
-        keys.sort(() => Math.random() - 0.5); // 무작위 섞기
-
-        let currentCount = 0;
-        for(const k of keys){
-            if(currentCount >= n) break; // 목표 개수 채우면 중단
-            
-            // 그룹 통째로 체크
-            groups[k].forEach(cb => cb.checked = true);
-            currentCount += groups[k].length;
-        }
-        
-        updateInvCount();
+    if (btnRandom) btnRandom.onclick = function () {
+        const n = parseInt(document.getElementById('invRandomCount').value || 10, 10) || 10;
+        INV_CHECKED.clear();
+        const cand = INV_FILTERED.filter(r => !MAKER_CART.has(r.qid));
+        if (!cand.length) { showCustomAlert('목록에 고를 문제가 없습니다.'); _mkRepaintChecks(); return; }
+        const groups = new Map();
+        cand.forEach(r => { const k = String(r.groupHash || r.qid); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r.qid); });
+        const keys = Array.from(groups.keys());
+        for (let i = keys.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [keys[i], keys[j]] = [keys[j], keys[i]]; }
+        let cnt = 0;
+        for (const k of keys) { if (cnt >= n) break; groups.get(k).forEach(q => INV_CHECKED.add(q)); cnt += groups.get(k).length; }
+        _mkRepaintChecks();
     };
+}
+
+function clearInvSelection() {
+    INV_CHECKED.clear();
+    _mkRepaintChecks();
 }
 
 /* ===================== [신규] 관리자 페이지 탭 및 기록 로직 ===================== */
@@ -1490,38 +1506,6 @@ function closeAdminDetail() {
 }
 
 // [신규] 우측 최근 5회차 과제 패널 열기/닫기 제어
-function toggleRecentAssignmentsPanel(forceState) {
-  const panel = document.getElementById('recentAssignmentsPanel');
-  const btn = document.getElementById('btnToggleRecentAsgn');
-  if (!panel) return;
-
-  const selectEl = document.getElementById('targetStudentSelect');
-  const inputEl = document.getElementById('targetStudentName');
-  const studentId = selectEl ? selectEl.value : (inputEl ? inputEl.value : '');
-
-  const isCurrentlyOpen = (panel.style.display !== 'none');
-  const nextState = (typeof forceState === 'boolean') ? forceState : !isCurrentlyOpen;
-
-  if (nextState) {
-    if (!studentId) {
-      showCustomAlert('최근 과제를 확인할 학생을 먼저 선택해 주십시오.');
-      return;
-    }
-    panel.style.display = 'flex';
-    if (btn) {
-      btn.style.background = '#059669';
-      btn.style.color = '#fff';
-    }
-    loadRecentAssignmentsForStudent(false);
-  } else {
-    panel.style.display = 'none';
-    if (btn) {
-      btn.style.background = '#fff';
-      btn.style.color = '#059669';
-    }
-  }
-}
-
 // [신규] 선택된 학생의 최근 5회차 과제 목록 로드 및 렌더링
 let RECENT_STUDENT_REQUEST_SEQUENCE = 0;
 function loadRecentAssignmentsForStudent(forceReload) {
@@ -1742,9 +1726,10 @@ if (btnPrintChecked) {
   btnPrintChecked.onclick = function() {
     const titleVal = document.getElementById('customTitleInput') ? document.getElementById('customTitleInput').value.trim() : '';
 
-    const uncheckedButSelected = document.querySelectorAll('#invTbody .inv-check:checked:not(:disabled)');
-    uncheckedButSelected.forEach(cb => MAKER_CART.add(cb.value));
+    INV_CHECKED.forEach(q => MAKER_CART.add(q));
+    INV_CHECKED.clear();
     updateCartUI();
+    renderCartTable();
 
     if(MAKER_CART.size === 0) { showCustomAlert('바구니에 담긴 문제가 없습니다.'); return; }
 
@@ -2639,7 +2624,7 @@ let MAKER_INSIGHT = null; // { studentId, stats, qrecent }
 function fetchInventoryRows(studentId) {
   return Promise.all([loadQuestionMeta(), gsCall('getStudentQuestionStats', [studentId, MAKER_INSIGHT_DAYS])])
     .then(([meta, st]) => {
-      MAKER_INSIGHT = { studentId: studentId, stats: (st && st.stats) || null, qrecent: (st && st.qrecent) || null };
+      MAKER_INSIGHT = { studentId: studentId, stats: (st && st.stats) || null, stats7: (st && Array.isArray(st.stats7)) ? st.stats7 : null, qrecent: (st && st.qrecent) || null };
       return buildInventoryRows(meta, st && st.qstats, st && st.acounts, st && st.alast);
     })
     .catch(err => {
@@ -2668,9 +2653,7 @@ function resetMakerAfterAssign() {
   renderCartTable();
   const titleInput = document.getElementById('customTitleInput');
   if (titleInput) titleInput.value = '';
-  document.querySelectorAll('#invTbody .inv-check:checked').forEach(cb => { cb.checked = false; });
-  const chkAll = document.getElementById('invCheckAll');
-  if (chkAll) chkAll.checked = false;
+  INV_CHECKED.clear();
   renderInventoryTable();
   refreshInventoryStats();
 }
@@ -2692,13 +2675,42 @@ function refreshInventoryStats() {
 }
 
 
-/* ===================== 과제출제: 최근 30일 취약 유형 · 난이도 =====================
- * 유형은 서버가 계산한 정답률(과제별 첫 시도 기준), 난이도는 문항별 첫 시도 기록에 문항 난이도를 붙여 계산합니다.
+/* ===================== 과제출제: 취약 유형 · 난이도 (7일 / 30일) =====================
+ * 불러올 때 30일 자료를 한 번에 받고(서버가 7일 것도 함께 계산), 7일·30일 버튼은 받은 자료 안에서 바꾸기만 합니다.
  * 칩을 누르면 왼쪽 '문제 유형' / '난이도' 필터가 함께 켜지거나 꺼집니다.
  */
+let MK_INS_DAYS = 7;
 function _mkRateClass(rate, total) {
     if (total < 3) return 'few';
     return rate <= 40 ? 'low' : rate <= 70 ? 'mid' : 'high';
+}
+// 기간에 맞는 [시도 수, 정답 수] (7일 자료가 없는 예전 서버면 30일 값)
+function _mkQrecentPair(q, days) {
+    if (!q) return [0, 0];
+    if (days === 7 && q.length >= 4) return [q[2], q[3]];
+    return [q[0], q[1]];
+}
+function _mkHas7() { const ins = MAKER_INSIGHT; return !!(ins && Array.isArray(ins.stats7)); }
+// 난이도 단계별 정답률 { 단계: {total, correct} } — 바구니 난이도 분포에도 씁니다.
+function mkDiffRates(days) {
+    const ins = MAKER_INSIGHT;
+    const out = {};
+    if (!ins || !ins.qrecent) return out;
+    const diffOf = new Map(INVENTORY_DATA.map(r => [String(r.qid), r.difficulty]));
+    Object.keys(ins.qrecent).forEach(qid => {
+        const [t, c] = _mkQrecentPair(ins.qrecent[qid], days);
+        if (!t) return;
+        const d = parseInt(diffOf.get(String(qid)), 10);
+        if (isNaN(d)) return;
+        const b = out[d] || (out[d] = { total: 0, correct: 0 });
+        b.total += t; b.correct += c;
+    });
+    return out;
+}
+function setMakerInsightDays(d) {
+    MK_INS_DAYS = d;
+    renderMakerInsight();
+    renderCartDiffSummary();
 }
 
 function renderMakerInsight() {
@@ -2712,54 +2724,52 @@ function renderMakerInsight() {
         return;
     }
     box.style.display = '';
+    const has7 = _mkHas7();
+    const days = has7 ? MK_INS_DAYS : MAKER_INSIGHT_DAYS;
+    const toggle = `<span class="mk-ins-days" role="group" aria-label="기간">
+        ${[7, 30].map(d => `<button type="button" data-days="${d}" class="${d === days ? 'on' : ''}"${d === 7 && !has7 ? ' disabled title="GS를 새 버전으로 배포하면 7일 보기를 쓸 수 있습니다."' : ''}>${d}일</button>`).join('')}</span>`;
+    const name = (SELECTED_MULTI_STUDENTS[0] && SELECTED_MULTI_STUDENTS.length > 1) ? `<span class="mk-ins-who">${escapeHTML(SELECTED_MULTI_STUDENTS[0].name)} 기준</span>` : '';
     if (!ins.qrecent) {
-        box.innerHTML = `<span class="mk-ins-title">최근 ${MAKER_INSIGHT_DAYS}일</span><span class="mk-ins-empty">GS를 새 버전으로 배포하면 취약 유형·난이도가 표시됩니다.</span>`;
+        box.innerHTML = `<div class="mk-ins-head"><span class="mk-ins-title">취약 유형</span>${toggle}<span class="mk-ins-empty">GS를 새 버전으로 배포하면 취약 유형·난이도가 표시됩니다.</span></div>`;
+        _mkBindInsight(box);
         return;
     }
-
-    // 난이도별 정답률
-    const diffOf = new Map(INVENTORY_DATA.map(r => [String(r.qid), r.difficulty]));
-    const byDiff = {};
+    const byDiff = mkDiffRates(days);
     let total = 0, correct = 0;
-    Object.keys(ins.qrecent).forEach(qid => {
-        const [t, c] = ins.qrecent[qid];
-        total += t; correct += c;
-        const d = parseInt(diffOf.get(String(qid)), 10);
-        if (isNaN(d)) return;
-        const b = byDiff[d] || (byDiff[d] = { total: 0, correct: 0 });
-        b.total += t; b.correct += c;
-    });
+    Object.keys(ins.qrecent).forEach(qid => { const [t, c] = _mkQrecentPair(ins.qrecent[qid], days); total += t; correct += c; });
     if (!total) {
-        box.innerHTML = `<span class="mk-ins-title">최근 ${MAKER_INSIGHT_DAYS}일</span><span class="mk-ins-empty">풀이 기록이 없습니다.</span>`;
+        box.innerHTML = `<div class="mk-ins-head"><span class="mk-ins-title">취약 유형</span>${toggle}${name}<span class="mk-ins-empty">최근 ${days}일 풀이 기록이 없습니다.</span></div>`;
+        _mkBindInsight(box);
         return;
     }
     const overall = Math.round(correct / total * 100);
-
-    const types = (ins.stats || []).slice(0, 8).map(st => {
+    const stats = (days === 7 && has7) ? ins.stats7 : (ins.stats || []);
+    const types = stats.slice(0, 8).map(st => {
         const cls = _mkRateClass(st.rate, st.total);
-        const on = '';
-        return `<button type="button" class="mk-ins-chip ${cls}${on}" data-kind="type" data-val="${escapeHTML(st.type)}" title="${st.total}문항 중 ${st.correct}개 정답">
-            <span>${escapeHTML(st.type)}</span><b>${st.rate}%</b></button>`;
+        return `<button type="button" class="mk-ins-chip ${cls}" data-kind="type" data-val="${escapeHTML(st.type)}" title="${st.total}문항 중 ${st.correct}개 정답">
+            <span>${escapeHTML(st.type)}</span><b>${st.rate}%</b><small>${st.total}문항</small></button>`;
     }).join('');
-
     const diffs = Object.keys(byDiff).map(Number).sort((a, b) => a - b).map(d => {
         const b = byDiff[d];
         const rate = Math.round(b.correct / b.total * 100);
         const cls = _mkRateClass(rate, b.total);
-        const on = '';
-        return `<button type="button" class="mk-ins-chip ${cls}${on}" data-kind="diff" data-val="${d}" title="${b.total}문항 중 ${b.correct}개 정답">
-            <span>${d}단계</span><b>${rate}%</b></button>`;
+        return `<button type="button" class="mk-ins-chip ${cls}" data-kind="diff" data-val="${d}" title="${b.total}문항 중 ${b.correct}개 정답">
+            <span>${d}단계</span><b>${rate}%</b><small>${b.total}</small></button>`;
     }).join('');
 
     box.innerHTML = `
       <div class="mk-ins-head">
-        <span class="mk-ins-title">최근 ${MAKER_INSIGHT_DAYS}일</span>
+        <span class="mk-ins-title">취약 유형</span>${toggle}${name}
         <span class="mk-ins-meta">푼 문항 ${total}개 · 정답률 <b>${overall}%</b></span>
-        <span class="mk-ins-legend"><i class="low"></i>40% 이하 <i class="mid"></i>70% 이하 <i class="high"></i>그 이상 · 누르면 필터 적용</span>
+        <span class="mk-ins-legend"><i class="low"></i>40% 이하 <i class="mid"></i>70% 이하 <i class="high"></i>그 이상 <i class="few"></i>3문항 미만 · 누르면 필터 적용</span>
       </div>
-      <div class="mk-ins-line"><span class="mk-ins-label">취약 유형</span><div class="mk-ins-chips">${types || '<span class="mk-ins-empty">기록 없음</span>'}</div></div>
-      <div class="mk-ins-line"><span class="mk-ins-label">난이도별</span><div class="mk-ins-chips">${diffs || '<span class="mk-ins-empty">기록 없음</span>'}</div></div>`;
-
+      <div class="mk-ins-line"><span class="mk-ins-label">유형</span><div class="mk-ins-chips">${types || '<span class="mk-ins-empty">기록 없음</span>'}</div></div>
+      <div class="mk-ins-line"><span class="mk-ins-label">난이도</span><div class="mk-ins-chips">${diffs || '<span class="mk-ins-empty">기록 없음</span>'}</div></div>`;
+    _mkBindInsight(box);
+    syncMakerInsightChips();
+}
+function _mkBindInsight(box) {
+    box.querySelectorAll('.mk-ins-days button[data-days]').forEach(b => { b.onclick = () => setMakerInsightDays(Number(b.dataset.days)); });
     box.querySelectorAll('.mk-ins-chip').forEach(btn => {
         btn.onclick = () => {
             const boxId = btn.dataset.kind === 'type' ? 'invTypeChips' : 'invDiffChips';
@@ -2770,7 +2780,83 @@ function renderMakerInsight() {
             syncMakerInsightChips();
         };
     });
-    syncMakerInsightChips();
+}
+
+/* ===================== 바구니 칸: 요약 + 탭(바구니 / 최근 과제) ===================== */
+// 바구니에 담긴 문항: 평균 난이도, 단계별 개수, 학생 기준 쉬움·보통·어려움, 유형별 개수
+function renderCartDiffSummary() {
+    const sumEl = document.getElementById('cartDiffSummary');
+    const distEl = document.getElementById('cartDiffDist');
+    const barEl = document.getElementById('cartLevelBar');
+    const typeEl = document.getElementById('cartTypeDist');
+    const byQid = new Map(INVENTORY_DATA.map(r => [r.qid, r]));
+    const rows = Array.from(MAKER_CART).map(q => byQid.get(q)).filter(Boolean);
+    const diffs = rows.map(r => parseInt(r.difficulty, 10)).filter(d => !isNaN(d));
+    const clear = () => { [sumEl, distEl, barEl, typeEl].forEach(el => { if (el) el.innerHTML = ''; }); };
+    if (!rows.length) { clear(); return; }
+
+    if (diffs.length) {
+        const avg = diffs.reduce((a, d) => a + d, 0) / diffs.length;
+        const cnt = {};
+        diffs.forEach(d => { cnt[d] = (cnt[d] || 0) + 1; });
+        if (sumEl) sumEl.innerHTML = `평균 난이도 <b>${avg.toFixed(1)}</b>`;
+        if (distEl) distEl.innerHTML = Object.keys(cnt).map(Number).sort((a, b) => a - b)
+            .map(d => `<span class="cart-diff-chip"><b>${d}</b>단계 ${cnt[d]}</span>`).join('');
+    } else { if (sumEl) sumEl.innerHTML = ''; if (distEl) distEl.innerHTML = ''; }
+
+    // 학생 기준 난이도: 그 학생이 그 단계를 80% 이상 맞히면 쉬움, 50% 이상 보통, 그 아래 어려움, 기록 없으면 '기록 없음'
+    if (barEl) {
+        const days = _mkHas7() ? MK_INS_DAYS : MAKER_INSIGHT_DAYS;
+        const rates = mkDiffRates(days);
+        const lv = { easy: 0, mid: 0, hard: 0, none: 0 };
+        rows.forEach(r => {
+            const b = rates[parseInt(r.difficulty, 10)];
+            if (!b || !b.total) { lv.none++; return; }
+            const rate = b.correct / b.total * 100;
+            if (rate >= 80) lv.easy++; else if (rate >= 50) lv.mid++; else lv.hard++;
+        });
+        const n = rows.length;
+        const seg = (k, label) => lv[k] ? `<span class="lv-${k}" style="flex:${lv[k]}" title="${label} ${lv[k]}문항"></span>` : '';
+        const who = SELECTED_MULTI_STUDENTS[0] ? escapeHTML(SELECTED_MULTI_STUDENTS[0].name) : '학생';
+        barEl.innerHTML = `<div class="mc-lv-title">${who} 기준 · 최근 ${days}일 정답률</div>
+          <div class="mc-lv-bar">${seg('easy', '쉬움')}${seg('mid', '보통')}${seg('hard', '어려움')}${seg('none', '기록 없음')}</div>
+          <div class="mc-lv-legend"><span><i class="lv-easy"></i>쉬움 ${lv.easy}</span><span><i class="lv-mid"></i>보통 ${lv.mid}</span><span><i class="lv-hard"></i>어려움 ${lv.hard}</span>${lv.none ? `<span><i class="lv-none"></i>기록 없음 ${lv.none}</span>` : ''}</div>`;
+        barEl.title = `학생이 그 난이도 단계를 80% 이상 맞히면 쉬움, 50~79% 보통, 50% 미만 어려움 (${n}문항)`;
+    }
+    if (typeEl) {
+        const tc = new Map();
+        rows.forEach(r => { const t = r.type || '기타'; tc.set(t, (tc.get(t) || 0) + 1); });
+        typeEl.innerHTML = Array.from(tc.entries()).sort((a, b) => b[1] - a[1])
+            .map(([t, c]) => `<span class="mc-type-chip">${escapeHTML(t)} ${c}</span>`).join('');
+    }
+}
+
+let MC_TAB = 'cart';
+let RECENT_LOADED_FOR = '';
+function switchCartTab(tab) {
+    MC_TAB = tab === 'recent' ? 'recent' : 'cart';
+    const aside = document.getElementById('createFooter');
+    if (aside) aside.classList.toggle('mc-wide', MC_TAB === 'recent');
+    document.querySelectorAll('#createFooter .mc-tab').forEach(b => {
+        const on = b.dataset.mcTab === MC_TAB;
+        b.classList.toggle('on', on); b.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    const cartPane = document.getElementById('mcPaneCart');
+    const recentPane = document.getElementById('recentAssignmentsPanel');
+    if (cartPane) cartPane.hidden = MC_TAB !== 'cart';
+    if (recentPane) { recentPane.hidden = MC_TAB !== 'recent'; recentPane.style.display = ''; }
+    if (MC_TAB === 'recent') {
+        const sel = document.getElementById('targetStudentSelect');
+        const id = sel ? sel.value : '';
+        const body = document.getElementById('recentAssignmentsBody');
+        if (!id) { if (body) body.innerHTML = '<div class="mc-empty">학생을 먼저 골라 주십시오.</div>'; return; }
+        if (RECENT_LOADED_FOR !== id) { RECENT_LOADED_FOR = id; loadRecentAssignmentsForStudent(false); }
+    }
+}
+// 예전 호출 호환: true = 최근 과제 탭 열기, false = 바구니 탭
+function toggleRecentAssignmentsPanel(forceState) {
+    const next = (typeof forceState === 'boolean') ? forceState : MC_TAB !== 'recent';
+    switchCartTab(next ? 'recent' : 'cart');
 }
 
 // 왼쪽 필터 칩의 선택 상태를 위 칩에도 표시
@@ -2800,3 +2886,112 @@ function _mkSyncCartTop() {
 }
 window.addEventListener('resize', _mkSyncCartTop);
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _mkSyncCartTop); else _mkSyncCartTop();
+
+/* ===================== 과제출제: 조건 저장 =====================
+ * 지금 고른 조건(출처·난이도·유형·더 거르기)을 이름 붙여 저장했다가 한 번에 다시 켭니다.
+ * 선생님 계정별로 이 브라우저에 저장됩니다(서버 요청 없음).
+ */
+function _mkPresetKey() { return 'k2_mk_presets:' + ((CURRENT_USER && CURRENT_USER.id) || 'guest'); }
+function _mkLoadPresets() { try { const a = JSON.parse(localStorage.getItem(_mkPresetKey()) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+function _mkSavePresets(list) { try { localStorage.setItem(_mkPresetKey(), JSON.stringify(list.slice(0, 30))); return true; } catch (e) { return false; } }
+function _mkCurrentCondition() {
+  const v = id => document.getElementById(id);
+  return {
+    src: Array.from(INV_SRC_SEL),
+    types: Array.from(invSelState.common.types),
+    diffs: Array.from(invSelState.common.difficulties),
+    solved: !!(v('chkInvExcludeSolved') || {}).checked,
+    recent: !!(v('chkExcludeRecentAsg') || {}).checked,
+    desc: !!(v('chkExcludeDescriptive') || {}).checked,
+    wrong: parseInt((v('invMinWrongCount') || {}).value, 10) || 0
+  };
+}
+function _mkConditionLabel(c) {
+  const parts = [];
+  const srcs = (c.src || []).filter(k => !(c.src || []).some(o => o !== k && o.indexOf(k + _SEP) === 0)).map(k => k.split(_SEP).join(' '));
+  if (srcs.length) parts.push(srcs.length > 2 ? srcs.slice(0, 2).join(', ') + ` 외 ${srcs.length - 2}` : srcs.join(', '));
+  if ((c.types || []).length) parts.push(c.types.length > 3 ? `유형 ${c.types.length}개` : c.types.join('·'));
+  if ((c.diffs || []).length) parts.push('난이도 ' + c.diffs.map(Number).sort((a, b) => a - b).join(','));
+  return parts.join(' / ') || '조건 없음';
+}
+function renderMakerPresets() {
+  const box = document.getElementById('mkPresetList');
+  if (!box) return;
+  const list = _mkLoadPresets();
+  box.innerHTML = list.length ? list.map((p, i) => `
+    <span class="mk-preset" title="${escapeAttr(_mkConditionLabel(p.c || {}))}">
+      <button type="button" class="mk-preset-apply" data-preset="${i}">${escapeHTML(p.name)}</button>
+      <button type="button" class="mk-preset-del" data-preset-del="${i}" aria-label="${escapeAttr(p.name)} 지우기">×</button>
+    </span>`).join('') : '<span class="mk-preset-empty">자주 쓰는 조건을 고른 뒤 [+ 지금 조건 저장]을 누르세요.</span>';
+}
+function applyMakerPreset(i) {
+  const p = _mkLoadPresets()[i];
+  if (!p) return;
+  if (!INVENTORY_DATA.length) { showToast('먼저 학생을 골라 주십시오.', 'error'); return; }
+  const c = p.c || {};
+  INV_SRC_SEL.clear();
+  (c.src || []).forEach(k => INV_SRC_SEL.add(k));
+  invSelState.common.types.clear(); (c.types || []).forEach(t => invSelState.common.types.add(t));
+  invSelState.common.difficulties.clear(); (c.diffs || []).forEach(d => invSelState.common.difficulties.add(String(d)));
+  const set = (id, on) => { const el = document.getElementById(id); if (el) el.checked = !!on; };
+  set('chkInvExcludeSolved', c.solved); set('chkExcludeRecentAsg', c.recent !== false); set('chkExcludeDescriptive', c.desc !== false);
+  const w = document.getElementById('invMinWrongCount'); if (w) w.value = c.wrong ? c.wrong : '';
+  INV_CHECKED.clear();
+  renderSrcTree();
+  initInventoryChips();
+  renderInventoryTable();
+  // 지금 문항 목록에 없는 출처(예: 아직 없는 연도)는 알려 줍니다.
+  const missing = (c.src || []).filter(k => { let n = INV_SRC_TREE; for (const part of k.split(_SEP)) { n = n && n.children.get(part); } return !n; });
+  showToast(missing.length ? `'${p.name}' 조건을 켰습니다. (목록에 없는 출처 ${missing.length}개는 건너뜀)` : `'${p.name}' 조건을 켰습니다.`, 'info');
+}
+function _mkOpenPresetForm(open) {
+  const f = document.getElementById('mkPresetForm');
+  if (!f) return;
+  f.hidden = !open;
+  if (open) {
+    const inp = document.getElementById('mkPresetName');
+    inp.value = '';
+    inp.placeholder = _mkConditionLabel(_mkCurrentCondition()).slice(0, 30);
+    setTimeout(() => inp.focus(), 30);
+  }
+}
+function saveMakerPreset() {
+  const c = _mkCurrentCondition();
+  if (!c.src.length && !c.types.length && !c.diffs.length) { showToast('저장할 조건(출처·난이도·유형)을 먼저 골라 주십시오.', 'error'); return; }
+  const inp = document.getElementById('mkPresetName');
+  const name = (inp.value.trim() || inp.placeholder || '조건').slice(0, 30);
+  const list = _mkLoadPresets();
+  const same = list.findIndex(p => p.name === name);
+  const item = { name: name, c: c, at: Date.now() };
+  if (same >= 0) list[same] = item; else list.push(item);
+  if (!_mkSavePresets(list)) { showToast('저장 공간이 부족해 저장하지 못했습니다.', 'error'); return; }
+  _mkOpenPresetForm(false);
+  renderMakerPresets();
+  showToast(same >= 0 ? `'${name}' 조건을 새로 고쳐 저장했습니다.` : `'${name}' 조건을 저장했습니다.`, 'info');
+}
+function _mkOnPresetClick(e) {
+  const a = e.target.closest('[data-preset]');
+  const d = e.target.closest('[data-preset-del]');
+  if (a) { applyMakerPreset(Number(a.dataset.preset)); return; }
+  if (d) {
+    const list = _mkLoadPresets();
+    const p = list[Number(d.dataset.presetDel)];
+    if (!p) return;
+    showCustomConfirm(`'${escapeHTML(p.name)}' 저장 조건을 지울까요?`, () => {
+      const cur = _mkLoadPresets();
+      const idx = cur.findIndex(x => x.name === p.name && x.at === p.at);
+      if (idx >= 0) cur.splice(idx, 1);
+      _mkSavePresets(cur); renderMakerPresets();
+    });
+  }
+}
+(function () {
+  const bind = () => {
+    const box = document.getElementById('mkPresetList');
+    if (box && !box._bound) { box._bound = true; box.addEventListener('click', _mkOnPresetClick); }
+    const inp = document.getElementById('mkPresetName');
+    if (inp && !inp._bound) { inp._bound = true; inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveMakerPreset(); } else if (e.key === 'Escape') _mkOpenPresetForm(false); }); }
+    renderMakerPresets();
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bind); else bind();
+})();

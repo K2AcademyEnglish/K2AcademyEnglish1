@@ -11,7 +11,7 @@
   <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
   <link rel="apple-touch-icon" href="https://i.imgur.com/NVHBqH2.png">
   <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
-  <link rel="stylesheet" href="style.css?v=20261121d">
+  <link rel="stylesheet" href="style.css?v=20261121f">
   <link rel="stylesheet" href="print.css?v=20261115e">
   <link rel="stylesheet" href="notice-points.css?v=20261119a">
   <link rel="stylesheet" href="ink.css?v=20261118a">
@@ -348,29 +348,47 @@
 <div class="panel wide" id="adminMakerPage" style="padding: 0;">
   <div class="maker-container">
     
-    <!-- [좌측] 필터 사이드바 영역 -->
+    <!-- [좌측] 문제 조건 -->
     <div class="maker-sidebar" id="adminFilterArea">
-      <h2 style="font-size:18px; margin:0 0 20px 0; color:#111827;">🔍 문제 조건 설정</h2>
-      
-      <div style="margin-bottom:20px; padding-bottom:15px; border-bottom:1px solid #eee;">
-      <button onclick="refreshMasterIndex()" class="btn-ghost" 
-        style="width:100%; height:40px; font-size:18px; background:#1e40af; color:white; border-radius:6px; font-weight:bold; 
-         display: flex; justify-content: center; align-items: center;">🔄 문제 목록 인덱스 갱신</button>
-    </div>
-
-      <!-- 문제 필터 컨테이너 (사이드바 안쪽에 위치) -->
+      <div class="mk-side-head">
+        <h2>🔍 문제 조건</h2>
+        <button type="button" class="mk-side-btn" onclick="refreshMasterIndex()" title="문제 목록 인덱스 갱신">🔄 인덱스</button>
+        <button type="button" class="mk-side-btn" onclick="resetMakerFilters()" title="고른 조건 모두 지우기">초기화</button>
+      </div>
       <div id="filterContainer">
-          
-          <div id="adminInvFilterContainer"></div>
-
-          <div class="inv-label" style="margin-top:20px; border-top:1px solid #eee; padding-top:10px; display:flex; align-items:center; gap:6px;">
-            난이도
-            <button type="button" onclick="showDifficultyGuide()" style="background:#e5e7eb; color:#4b5563; border:none; border-radius:50%; width:20px; height:20px; font-size:12px; font-weight:bold; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; padding:0;">?</button>
+          <div id="adminInvFilterContainer" hidden></div>
+          <div class="mk-sec mk-presets">
+            <div class="inv-label">저장한 조건</div>
+            <div id="mkPresetList" class="mk-preset-list"></div>
+            <button type="button" class="mk-preset-add" onclick="_mkOpenPresetForm(true)">+ 지금 조건 저장</button>
+            <div id="mkPresetForm" class="mk-preset-form" hidden>
+              <input type="text" id="mkPresetName" maxlength="30" aria-label="조건 이름">
+              <button type="button" class="mk-preset-save" onclick="saveMakerPreset()">저장</button>
+              <button type="button" class="mk-preset-cancel" onclick="_mkOpenPresetForm(false)">취소</button>
+            </div>
           </div>
-          <div id="invDiffChips" class="chip-grid"></div>
-          
-          <div class="inv-label" style="margin-top:20px; border-top:1px solid #eee; padding-top:10px;">문제 유형 (공통)</div>
-          <div id="invTypeChips" class="chip-grid"></div>
+          <div class="mk-sec">
+            <div class="inv-label">출처 <span class="mk-sec-sub">학년 → 연도 → 월 순서로 체크</span></div>
+            <div id="invSrcTree" class="mk-tree"><div class="mk-tree-empty">학생을 고르면 출처 목록이 나옵니다.</div></div>
+          </div>
+          <div class="mk-sec">
+            <div class="inv-label" style="display:flex; align-items:center; gap:6px;">
+              난이도
+              <button type="button" onclick="showDifficultyGuide()" class="mk-help-btn" aria-label="난이도 참고표">?</button>
+            </div>
+            <div id="invDiffChips" class="chip-grid"></div>
+          </div>
+          <div class="mk-sec">
+            <div class="inv-label">문제 유형</div>
+            <div id="invTypeChips" class="chip-grid"></div>
+          </div>
+          <div class="mk-sec mk-opts">
+            <div class="inv-label">더 거르기</div>
+            <label><input type="checkbox" id="chkInvExcludeSolved" onchange="renderInventoryTable()"> 안 푼 문제만</label>
+            <label><input type="checkbox" id="chkExcludeRecentAsg" checked onchange="renderInventoryTable()"> 최근 30일 배부 제외</label>
+            <label><input type="checkbox" id="chkExcludeDescriptive" checked onchange="renderInventoryTable()"> 서술형 제외</label>
+            <label>오답 <input type="number" id="invMinWrongCount" min="0" placeholder="0" oninput="renderInventoryTable()"> 회 이상</label>
+          </div>
       </div>
     </div>
 
@@ -389,24 +407,22 @@
                 <button type="button" id="btnAddStudent" class="mk-add-student" onclick="openStudentSelectModal()">+ 학생 선택</button>
             </div>
             <button id="btnLoadInventory" type="button" hidden>불러오기</button>
-            <button id="btnToggleRecentAsgn" onclick="toggleRecentAssignmentsPanel()" class="btn-ghost" style="width:auto; padding:6px 12px; font-size:13px; background:#fff; border:1px solid #059669; color:#059669;">최근 과제</button>
             <span id="mkPrimaryNote" class="mk-primary-note" hidden></span>
         </div>
         <!-- 최근 30일 취약 유형 · 난이도 (불러오기 후 표시, 누르면 왼쪽 필터에 적용) -->
         <div id="makerInsight" class="mk-insight" style="display:none;"></div>
-        <div class="header-row" style="background:#f9fafb; padding:8px; border-radius:8px;">
-            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap;"><input type="checkbox" id="chkInvExcludeSolved" onchange="renderInventoryTable()" style="margin-right:4px;"> 안 푼 문제만</label>
-            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; margin-left:10px;"><input type="checkbox" id="chkExcludeRecentAsg" checked onchange="renderInventoryTable()" style="margin-right:4px;"> 최근 30일 배부 제외</label>
-            <label style="font-size:15px; cursor:pointer; display:flex; align-items:center; white-space:nowrap; margin-left:10px;"><input type="checkbox" id="chkExcludeDescriptive" checked onchange="renderInventoryTable()" style="margin-right:4px;"> 서술형 제외</label>
-            <span style="font-size:15px; margin-left:10px;">오답:</span>
-            <input type="number" id="invMinWrongCount" placeholder="0" style="width:80px; margin:0; padding:4px;" oninput="renderInventoryTable()">
-            <span style="font-size:15px; margin-left:10px;">번호검색:</span>
-            <input type="text" id="invNumberSearch" placeholder="예: 21" style="width:160px; margin:0; padding:4px;" oninput="renderInventoryTable()">
-            <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-                <input type="number" id="invRandomCount" value="10" style="width:80px; margin:0; padding:4px; text-align:center;">
-                <button id="btnInvRandom" class="btn-ghost" style="width:auto; padding:6px 10px; font-size:15px;">랜덤선택</button>
-                <button id="btnAddToCart" class="btn-primary" style="width:auto; padding:6px 15px; font-size:15px; background:#059669;" onclick="addSelectedToCart()">바구니 담기 (<span id="invSelectedCount">0</span>)</button>
-            </div>
+        <div class="mk-search-row">
+            <input type="search" id="invNumberSearch" placeholder="번호·출처로 찾기 (예: 21, 2024 3월)" aria-label="번호·출처로 찾기">
+            <div id="invActiveChips" class="mk-ac"></div>
+            <span id="invMatchCount" class="mk-match"></span>
+        </div>
+        <div class="mk-select-row">
+            <span class="mk-sel-count"><b id="invSelectedCount">0</b>개 선택</span>
+            <button id="btnAddToCart" type="button" class="mk-btn-add" onclick="addSelectedToCart()">바구니 담기</button>
+            <button type="button" class="mk-btn-ghost" onclick="clearInvSelection()">선택 해제</button>
+            <span class="mk-sep"></span>
+            <span class="mk-rand">랜덤 <input type="number" id="invRandomCount" value="10" min="1" aria-label="랜덤 개수"> 개 <button id="btnInvRandom" type="button" class="mk-btn-ghost">고르기</button></span>
+            <div id="invSortBar" class="mk-sort"></div>
         </div>
         <div id="invRecentHint" class="mk-recent-hint" hidden></div>
     </div>
@@ -416,38 +432,21 @@
     <!-- 1. 문제 목록 섹션 (좌측 문제목록 + 우측 최근 과제 분할) -->
     <div id="inventorySection" style="display:flex; height:100%; overflow:hidden;">
         <div class="inv-table-wrap" style="flex:1; height:100%; overflow-y:auto; min-width:0;">
-            <table id="invTable" style="width:100%; border-collapse:collapse; font-size:12px;">
+            <table id="invTable">
                 <thead>
                     <tr>
-                        <th style="padding:10px; width:40px; text-align:center; border-bottom:1px solid #ddd;"><input type="checkbox" id="invCheckAll"></th>
-                        <th onclick="sortInventory('status')" style="cursor:pointer; width:60px;">상태 <span id="sort_status"></span></th>
-                        <th onclick="sortInventory('lastTs')" style="cursor:pointer; width:90px;">최근 풀이 <span id="sort_lastTs"></span></th>
-                        <th onclick="sortInventory('assign')" style="cursor:pointer; width:50px;">배부 <span id="sort_assign"></span></th>
-                        <th onclick="sortInventory('wrong')" style="cursor:pointer; width:50px;">오답 <span id="sort_wrong"></span></th>
-                        <th onclick="sortInventory('source')" style="cursor:pointer;">출처/정보 <span id="sort_source"></span></th>
-                        <th onclick="sortInventory('type')" style="cursor:pointer; width:100px;">유형 <span id="sort_type"></span></th>
-                        <th onclick="sortInventory('difficulty')" style="cursor:pointer; width:50px;">난이도 <span id="sort_difficulty"></span></th>
-                        <th onclick="sortInventory('number')" style="cursor:pointer; width:80px;">번호 <span id="sort_number"></span></th>
+                        <th class="c-chk"><input type="checkbox" id="invCheckAll" aria-label="목록 전체 선택"></th>
+                        <th class="c-src" data-sort-head="src" onclick="mkSortHeader('src')">문제 <span class="mk-th-arrow"></span></th>
+                        <th class="c-type" data-sort-head="type" onclick="mkSortHeader('type')">유형 <span class="mk-th-arrow"></span></th>
+                        <th class="c-diff" data-sort-head="diff" onclick="mkSortHeader('diff')">난이도 <span class="mk-th-arrow"></span></th>
+                        <th class="c-rec" data-sort-head="rec" onclick="mkSortHeader('rec')">기록 <span class="mk-th-arrow"></span></th>
+                        <th class="c-rate" data-sort-head="rate" onclick="mkSortHeader('rate')" title="기준 학생의 최근 30일 첫 시도 정답률">정답률 <span class="mk-th-arrow"></span></th>
                     </tr>
                 </thead>
                 <tbody id="invTbody">
-                    <tr><td colspan="9" style="padding:40px; text-align:center; color:#999;">학생을 선택하고 [불러오기]를 눌러 주십시오.</td></tr>
+                    <tr><td colspan="6" style="padding:40px; text-align:center; color:#999;">위의 [+ 학생 선택]을 눌러 학생을 골라 주십시오.</td></tr>
                 </tbody>
             </table>
-        </div>
-
-        <!-- [신규] 우측 최근 5회차 과제 사이드 패널 -->
-        <div id="recentAssignmentsPanel" class="recent-asgn-panel" style="display:none;">
-            <div class="recent-asgn-header">
-                <span id="recentAsgnTitle" style="font-weight:bold; font-size:14px; color:#065f46;">📋 최근 5회차 과제</span>
-                <div style="display:flex; gap:6px; align-items:center;">
-                    <button type="button" onclick="loadRecentAssignmentsForStudent(true)" style="width:auto; padding:4px 8px; font-size:11px; background:#fff; color:#059669; border:1px solid #059669; border-radius:4px; cursor:pointer;">새로고침</button>
-                    <button type="button" onclick="toggleRecentAssignmentsPanel(false)" style="width:auto; background:none; border:none; font-size:20px; color:#6b7280; cursor:pointer; padding:0 4px; line-height:1;">&times;</button>
-                </div>
-            </div>
-            <div id="recentAssignmentsBody" class="recent-asgn-body">
-                <div style="padding:30px; text-align:center; color:#6b7280; font-size:13px;">학생을 선택하고 불러오기를 진행해 주십시오.</div>
-            </div>
         </div>
     </div>
 
@@ -484,33 +483,49 @@
 
     </div>
     <!-- 오른쪽 바구니: 항상 펼쳐져 있고, 제목 입력과 출제 버튼도 여기에 있습니다. -->
-    <aside class="maker-cart" id="createFooter" aria-label="바구니">
-      <div class="mc-head">
-        <b class="mc-title">🛒 바구니 <span id="cartCountDisplay">0</span>개</b>
-        <button type="button" class="mc-clear" onclick="clearCart()">🗑️ 비우기</button>
+    <aside class="maker-cart" id="createFooter" aria-label="바구니와 최근 과제">
+      <div class="mc-tabs" role="tablist">
+        <button type="button" class="mc-tab on" data-mc-tab="cart" role="tab" aria-selected="true" onclick="switchCartTab('cart')">🛒 바구니 <span id="cartCountDisplay">0</span></button>
+        <button type="button" class="mc-tab" data-mc-tab="recent" role="tab" aria-selected="false" onclick="switchCartTab('recent')">📋 최근 과제</button>
       </div>
-      <div class="mc-sum">
-        <span id="cartDiffSummary" class="cart-diff-sum"></span>
-        <span id="cartDiffDist" class="cart-diff-dist"></span>
+      <div id="mcPaneCart" class="mc-pane">
+        <div class="mc-head">
+          <span id="cartDiffSummary" class="cart-diff-sum"></span>
+          <button type="button" class="mc-clear" onclick="clearCart()">🗑️ 비우기</button>
+        </div>
+        <div class="mc-sum">
+          <span id="cartDiffDist" class="cart-diff-dist"></span>
+          <div id="cartLevelBar" class="mc-lv"></div>
+          <div id="cartTypeDist" class="mc-types"></div>
+        </div>
+        <div class="mc-sort">
+          <select id="cartSortSelect" onchange="sortCartList(this.value)" aria-label="바구니 정렬">
+            <option value="">정렬 방식 선택</option>
+            <option value="number_asc">번호 오름차순</option>
+            <option value="number_desc">번호 내림차순</option>
+            <option value="type_asc">유형 가나다순</option>
+            <option value="type_desc">유형 역순</option>
+            <option value="difficulty_asc">난이도 낮은 순</option>
+            <option value="difficulty_desc">난이도 높은 순</option>
+            <option value="source_asc">출처 오름차순</option>
+            <option value="source_desc">출처 내림차순</option>
+            <option value="wrong_desc">오답 많은 순</option>
+            <option value="wrong_asc">오답 적은 순</option>
+          </select>
+          <label title="체크하면 바구니에 보이는 순서대로 출제합니다. 끄면 지문 세트 단위로 섞습니다."><input type="checkbox" id="chkCartOrder"> 이 순서대로</label>
+        </div>
+        <div id="cartListPanel" class="open mc-list">
+          <table><tbody id="cartTbody"></tbody></table>
+        </div>
       </div>
-      <div class="mc-sort">
-        <select id="cartSortSelect" onchange="sortCartList(this.value)" aria-label="바구니 정렬">
-          <option value="">정렬 방식 선택</option>
-          <option value="number_asc">번호 오름차순</option>
-          <option value="number_desc">번호 내림차순</option>
-          <option value="type_asc">유형 가나다순</option>
-          <option value="type_desc">유형 역순</option>
-          <option value="difficulty_asc">난이도 낮은 순</option>
-          <option value="difficulty_desc">난이도 높은 순</option>
-          <option value="source_asc">출처 오름차순</option>
-          <option value="source_desc">출처 내림차순</option>
-          <option value="wrong_desc">오답 많은 순</option>
-          <option value="wrong_asc">오답 적은 순</option>
-        </select>
-        <label title="체크하면 바구니에 보이는 순서대로 출제합니다. 끄면 지문 세트 단위로 섞습니다."><input type="checkbox" id="chkCartOrder"> 이 순서대로</label>
-      </div>
-      <div id="cartListPanel" class="open mc-list">
-        <table><tbody id="cartTbody"></tbody></table>
+      <div id="recentAssignmentsPanel" class="mc-pane mc-recent" hidden>
+        <div class="recent-asgn-header">
+          <span id="recentAsgnTitle">📋 최근 5회차 과제</span>
+          <button type="button" class="mc-refresh" onclick="loadRecentAssignmentsForStudent(true)">새로고침</button>
+        </div>
+        <div id="recentAssignmentsBody" class="recent-asgn-body">
+          <div class="mc-empty">학생을 먼저 골라 주십시오.</div>
+        </div>
       </div>
       <div class="mc-foot">
         <input type="text" id="customTitleInput" placeholder="과제 제목 (비우면 자동으로 정함)" aria-label="과제 제목">
@@ -658,10 +673,10 @@
   <script src="vocab.js?v=20261121b"></script>
   <script src="student-quiz.js?v=20261119a"></script>
   <script src="ink.js?v=20261118a"></script>
-  <script src="admin-maker.js?v=20261121b"></script>
+  <script src="admin-maker.js?v=20261121d"></script>
   <script src="qbank.js?v=20261120b"></script>
   <script src="students.js?v=20261117a"></script>
   <script src="print-report.js?v=20261120a"></script>
-  <script src="app-core.js?v=20261121a"></script>
+  <script src="app-core.js?v=20261121b"></script>
 </body>
 </html>

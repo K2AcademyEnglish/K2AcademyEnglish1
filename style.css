@@ -2372,3 +2372,191 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 .vt-prompt .vt-tts { width: 44px !important; height: 44px; font-size: 24px !important; background: #eef2ff !important; margin-left: 6px !important; vertical-align: 4px; }
 .vt-reveal .vt-tts, .vt-no .vt-tts { width: 34px !important; height: 34px; font-size: 18px !important; background: #fff !important; }
 .vt-card [hidden] { display: none !important; }
+
+/* ===================== 과제출제 A안 (2026-11-21) ===================== */
+/* 왼쪽 조건 칸 */
+.mk-side-head { display: flex; align-items: center; gap: 6px; margin: 0 0 14px; }
+.mk-side-head h2 { margin: 0 auto 0 0; font-size: 18px; color: #111827; white-space: nowrap; }
+.mk-side-btn { width: auto !important; height: 30px; margin: 0 !important; padding: 0 10px !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; background: #fff !important; color: #334155 !important; font-size: 12px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
+.mk-side-btn:hover { border-color: #2b6cb0 !important; color: #1e40af !important; }
+.mk-sec { border-top: 1px solid #e5e7eb; padding-top: 12px; margin-top: 12px; }
+.mk-sec:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+.mk-sec .inv-label { font-weight: 700; color: #111827; margin-bottom: 8px; }
+.mk-sec-sub { font-size: 11px; font-weight: 400; color: #94a3b8; margin-left: 4px; }
+.mk-help-btn { width: 20px !important; height: 20px; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 50% !important; background: #e5e7eb !important; color: #4b5563 !important; font-size: 12px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; }
+.mk-tree { max-height: 42vh; overflow: auto; overscroll-behavior: contain; border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; padding: 4px; }
+.mk-tree-empty { padding: 14px 8px; font-size: 13px; color: #94a3b8; text-align: center; }
+.mk-tree-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 14px; color: #1f2937; }
+.mk-tree-row:hover { background: #f1f5f9; }
+.mk-tree-row.on { background: #eff6ff; color: #1e3a8a; font-weight: 700; }
+.mk-tree-row input { width: 16px; height: 16px; margin: 0; flex: 0 0 auto; }
+.mk-tree-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-tree-cnt { font-size: 11px; color: #94a3b8; font-weight: 400; }
+.mk-tree-kids { margin-left: 14px; padding-left: 6px; border-left: 2px solid #dbeafe; }
+.mk-tree-node.lv0 > .mk-tree-row { font-size: 15px; }
+.mk-opts label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: #1f2937; padding: 4px 0; cursor: pointer; }
+.mk-opts input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
+.mk-opts input[type="number"] { width: 56px; margin: 0; padding: 3px 6px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 6px; }
+
+/* 가운데: 검색 · 켜진 조건 · 선택 줄 */
+.mk-search-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+#invNumberSearch { flex: 0 1 260px; min-width: 160px; height: 36px; margin: 0; padding: 0 10px; font-size: 14px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; }
+.mk-ac { display: flex; gap: 6px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.mk-ac-chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 2px 2px 10px; border-radius: 14px; background: #eff6ff; color: #1e3a8a; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.mk-ac-chip button { width: 22px !important; height: 22px; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 50% !important; background: none !important; color: #475569 !important; font-size: 14px !important; cursor: pointer; box-shadow: none !important; }
+.mk-ac-chip button:hover { background: #dbeafe !important; }
+.mk-match { margin-left: auto; font-size: 13px; color: #475569; white-space: nowrap; }
+.mk-select-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 10px; font-size: 13px; }
+.mk-sel-count b { color: #1e40af; font-size: 15px; }
+.mk-btn-add { width: auto !important; height: 32px; margin: 0 !important; padding: 0 14px !important; border: none !important; border-radius: 8px !important; background: #059669 !important; color: #fff !important; font-size: 13px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; }
+.mk-btn-ghost { width: auto !important; height: 32px; margin: 0 !important; padding: 0 10px !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; background: #fff !important; color: #334155 !important; font-size: 13px !important; cursor: pointer; box-shadow: none !important; }
+.mk-sep { width: 1px; height: 22px; background: #e2e8f0; }
+.mk-rand { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.mk-rand input { width: 52px; height: 30px; margin: 0; padding: 0 4px; text-align: center; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; }
+.mk-sort { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-left: auto; }
+.mk-sort-label { font-size: 12px; color: #64748b; margin-right: 2px; }
+.mk-sort-item { display: inline-flex; align-items: center; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; overflow: hidden; }
+.mk-sort-item.on { border-color: #2b6cb0; background: #eff6ff; }
+.mk-sort-item label { display: inline-flex; align-items: center; gap: 3px; padding: 0 4px 0 6px; height: 28px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.mk-sort-item input { width: 13px; height: 13px; margin: 0; }
+.mk-sort-item b { display: inline-flex; align-items: center; justify-content: center; width: 15px; height: 15px; border-radius: 50%; background: #2b6cb0; color: #fff; font-size: 10px; }
+.mk-sort-item button { width: 24px !important; height: 28px; margin: 0 !important; padding: 0 !important; border: none !important; border-left: 1px solid #e2e8f0 !important; border-radius: 0 !important; background: none !important; color: #475569 !important; font-size: 11px !important; cursor: pointer; box-shadow: none !important; }
+.mk-sort-item.on button { color: #1e40af !important; }
+
+/* 표 */
+#invTable { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+#invTable th { padding: 9px 8px; text-align: left; font-size: 12px; color: #475569; white-space: nowrap; cursor: pointer; user-select: none; }
+#invTable th.on { color: #1e40af; }
+#invTable th .mk-th-arrow { font-size: 10px; opacity: .45; }
+#invTable th.on .mk-th-arrow { opacity: 1; }
+#invTable .c-chk { width: 36px; text-align: center; cursor: default; }
+#invTable .c-type { width: 84px; }
+#invTable .c-diff { width: 56px; text-align: center; }
+#invTable .c-rec { width: 170px; }
+#invTable .c-rate { width: 64px; text-align: center; }
+#invTable td { padding: 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+#invTable td.c-src { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#invTable input[type="checkbox"] { width: 16px; height: 16px; margin: 0; }
+.inv-row { cursor: pointer; }
+.inv-row:hover td { background: #f8fafc; }
+.inv-row.checked td { background: #eff6ff; }
+.inv-row.recent td { background: #fffbeb; }
+.inv-row.in-cart td { background: #f3f4f6; color: #9ca3af; cursor: default; }
+.mk-src { color: #374151; }
+.mk-no { color: #111827; }
+.mk-incart { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #e5e7eb; color: #6b7280; }
+.mk-rec { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.mk-rec.ok { background: #dcfce7; color: #166534; }
+.mk-rec.fix { background: #fef3c7; color: #92400e; }
+.mk-rec.bad { background: #fee2e2; color: #991b1b; }
+.mk-rec.none { background: #f1f5f9; color: #64748b; font-weight: 400; }
+.mk-rec-date { margin-left: 4px; font-size: 11px; color: #94a3b8; }
+.mk-rec-asg { margin-left: 4px; font-size: 11px; color: #2563eb; white-space: nowrap; }
+.mk-rate { font-weight: 700; font-size: 12px; }
+.mk-rate.hi { color: #166534; } .mk-rate.mid { color: #b45309; } .mk-rate.lo { color: #b91c1c; } .mk-rate.none { color: #cbd5e1; font-weight: 400; }
+.inv-more td { text-align: center; padding: 10px; }
+.inv-more button { width: auto !important; margin: 0 !important; padding: 6px 16px !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; background: #fff !important; color: #334155 !important; font-size: 13px !important; cursor: pointer; box-shadow: none !important; }
+.mk-empty-guide { height: 46vh; text-align: center; vertical-align: middle; color: #6b7280; font-size: 14px; line-height: 1.7; border: none !important; }
+.mk-empty-guide b { font-size: 17px; color: #374151; }
+
+/* 취약 유형 7일/30일 */
+.mk-ins-days { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; }
+.mk-ins-days button { width: auto !important; height: 26px; margin: 0 !important; padding: 0 10px !important; border: none !important; border-radius: 0 !important; background: #fff !important; color: #475569 !important; font-size: 12px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; }
+.mk-ins-days button + button { border-left: 1px solid #cbd5e1 !important; }
+.mk-ins-days button.on { background: #2b6cb0 !important; color: #fff !important; }
+.mk-ins-days button:disabled { opacity: .45; cursor: default; }
+.mk-ins-who { font-size: 12px; color: #475569; }
+.mk-ins-chip small { font-size: 10px; color: inherit; opacity: .7; margin-left: 2px; }
+.mk-ins-legend i.few { background: #e5e7eb; }
+
+/* 바구니 칸: 탭 */
+#createFooter.maker-cart > .mc-tabs { display: flex; gap: 0; flex: 0 0 auto; background: #fff; border-bottom: 1px solid #e2e8f0; }
+.mc-tab { flex: 1 1 0; width: auto !important; height: 44px; margin: 0 !important; padding: 0 6px !important; border: none !important; border-bottom: 3px solid transparent !important; border-radius: 0 !important; background: #fff !important; color: #64748b !important; font-size: 14px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
+.mc-tab.on { color: #1e40af !important; border-bottom-color: #2b6cb0 !important; }
+.mc-tab #cartCountDisplay { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #dc2626; color: #fff; font-size: 11px; line-height: 18px; }
+#createFooter.maker-cart > .mc-pane { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; gap: 0; align-self: stretch; width: auto; }
+#createFooter.maker-cart { align-items: stretch; }
+#createFooter.maker-cart > .mc-tabs, #createFooter.maker-cart > .mc-foot { align-self: stretch; }
+#createFooter.maker-cart > .mc-pane > .mc-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px 2px; background: #fff; }
+#createFooter.maker-cart > .mc-pane > .mc-sum { display: flex; flex-direction: column; gap: 6px; padding: 4px 14px 10px; background: #fff; }
+#createFooter.maker-cart > .mc-pane > .mc-sort { display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #e2e8f0; font-size: 12px; }
+#mcPaneCart > #cartListPanel {
+  position: static; visibility: visible; opacity: 1; transform: none; box-shadow: none; border-top: 0;
+  display: block; flex: 1 1 0; height: auto; min-height: 100px; max-height: none;
+  overflow: auto; overscroll-behavior: contain; padding: 4px 8px; background: transparent; z-index: auto;
+}
+.mc-lv-title { font-size: 11px; color: #64748b; margin-bottom: 4px; }
+.mc-lv-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #f1f5f9; }
+.mc-lv-bar span { display: block; height: 100%; }
+.lv-easy { background: #86efac; } .lv-mid { background: #fbbf24; } .lv-hard { background: #ef4444; } .lv-none { background: #cbd5e1; }
+.mc-lv-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; font-size: 11px; color: #475569; }
+.mc-lv-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 3px; vertical-align: -1px; }
+.mc-lv:empty, .mc-types:empty { display: none; }
+.mc-types { display: flex; flex-wrap: wrap; gap: 4px; }
+.mc-type-chip { font-size: 11px; padding: 1px 7px; border-radius: 8px; background: #f1f5f9; color: #334155; }
+#createFooter.maker-cart.mc-wide { width: 440px; flex-basis: 440px; }
+@media screen and (min-width: 721px) {
+  body.admin-create-mode #createFooter.maker-cart.mc-wide { width: 440px; flex-basis: 440px; }
+}
+.mc-recent .recent-asgn-header { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; background: #ecfdf5; border-bottom: 1px solid #a7f3d0; font-weight: 700; font-size: 13px; color: #065f46; }
+.mc-refresh { width: auto !important; height: 28px; margin: 0 !important; padding: 0 10px !important; border: 1px solid #059669 !important; border-radius: 6px !important; background: #fff !important; color: #059669 !important; font-size: 12px !important; cursor: pointer; box-shadow: none !important; }
+.mc-recent .recent-asgn-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+
+@media screen and (max-width: 1100px) {
+  #invTable .c-rec { width: 130px; }
+  .mk-sort { margin-left: 0; }
+}
+@media screen and (max-width: 720px) {
+  .mk-tree { max-height: 36vh; }
+  #invTable { min-width: 640px; }
+  #createFooter.maker-cart.mc-wide, body.admin-create-mode #createFooter.maker-cart.mc-wide { width: 100%; }
+  #mcPaneCart > #cartListPanel { flex: none; max-height: 50vh; }
+  .mk-match { margin-left: 0; }
+}
+/* 예전 '최근 과제' 옆 칸 규칙이 바구니 칸 안의 최근 과제 탭에 걸리지 않게 */
+#createFooter #recentAssignmentsPanel, body.admin-create-mode #createFooter #recentAssignmentsPanel {
+  width: auto; min-width: 0; max-width: none; flex: 1 1 0; height: auto; min-height: 0; border: 0; overflow: hidden;
+}
+.mk-side-head { flex-wrap: wrap; row-gap: 6px; }
+.mk-no { display: inline-block; min-width: 34px; }
+.mk-recent-tag + .mk-src, .mk-incart + .mk-src { margin-left: 2px; }
+/* 휴대폰: 전역 큰 버튼 규칙이 과제출제의 작은 버튼을 키우지 않게 */
+@media screen and (max-width: 720px) {
+  html body #adminMakerPage#adminMakerPage .mk-select-row button, html body #adminMakerPage#adminMakerPage .mk-side-btn, html body #adminMakerPage#adminMakerPage .mk-ins-days button { height: 32px !important; min-height: 0 !important; font-size: 13px !important; line-height: 1 !important; padding: 0 10px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-sort-item button { height: 28px !important; min-height: 0 !important; width: 24px !important; font-size: 11px !important; padding: 0 !important; }
+  html body #adminMakerPage#adminMakerPage .mk-ac-chip button { height: 22px !important; min-height: 0 !important; width: 22px !important; font-size: 14px !important; padding: 0 !important; }
+  html body #adminMakerPage#adminMakerPage button.mk-ins-chip { height: auto !important; min-height: 0 !important; padding: 3px 8px !important; font-size: 12px !important; width: auto !important; }
+  html body #adminMakerPage#adminMakerPage .mk-rand input { height: 30px !important; font-size: 13px !important; }
+  html body #adminMakerPage#adminMakerPage #createFooter .mc-tab { height: 44px !important; font-size: 14px !important; padding: 0 6px !important; border-radius: 0 !important; }
+  html body #adminMakerPage#adminMakerPage #createFooter .mc-clear, html body #adminMakerPage#adminMakerPage #createFooter .mc-refresh { height: 28px !important; font-size: 12px !important; padding: 0 8px !important; }
+  html body #adminMakerPage#adminMakerPage #createFooter .mc-x button, html body #adminMakerPage#adminMakerPage .tts-btn { height: 26px !important; padding: 0 !important; font-size: 16px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-chip button { height: 24px !important; padding: 0 !important; font-size: 16px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-add-student, html body #adminMakerPage#adminMakerPage .mk-help-btn { height: 32px !important; padding: 0 12px !important; font-size: 13px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-help-btn { height: 20px !important; padding: 0 !important; font-size: 12px !important; }
+  html body #adminMakerPage#adminMakerPage .inv-more button { height: 34px !important; padding: 0 16px !important; font-size: 13px !important; }
+}
+/* 저장한 조건 */
+.mk-preset-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.mk-preset { display: inline-flex; align-items: center; border: 1px solid #93c5fd; border-radius: 16px; background: #eff6ff; overflow: hidden; }
+.mk-preset-apply { width: auto !important; height: 30px; margin: 0 !important; padding: 0 4px 0 12px !important; border: none !important; border-radius: 0 !important; background: none !important; color: #1e40af !important; font-size: 13px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-preset-apply:hover { text-decoration: underline; }
+.mk-preset-del { width: 26px !important; height: 30px; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 0 !important; background: none !important; color: #64748b !important; font-size: 15px !important; cursor: pointer; box-shadow: none !important; }
+.mk-preset-del:hover { color: #dc2626 !important; }
+.mk-preset-empty { font-size: 12px; color: #94a3b8; line-height: 1.5; }
+.mk-preset-add { width: 100% !important; height: 32px; margin: 0 !important; padding: 0 !important; border: 1px dashed #94a3b8 !important; border-radius: 8px !important; background: #fff !important; color: #334155 !important; font-size: 13px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; }
+.mk-preset-add:hover { border-color: #2b6cb0 !important; color: #1e40af !important; }
+.mk-preset-form { display: flex; gap: 6px; margin-top: 6px; }
+.mk-preset-form input { flex: 1 1 auto; min-width: 0; height: 32px; margin: 0; padding: 0 8px; font-size: 13px; border: 1px solid #cbd5e1; border-radius: 8px; box-sizing: border-box; }
+.mk-preset-form button { width: auto !important; height: 32px; margin: 0 !important; padding: 0 10px !important; border-radius: 8px !important; font-size: 13px !important; cursor: pointer; box-shadow: none !important; }
+.mk-preset-save { border: none !important; background: #2b6cb0 !important; color: #fff !important; font-weight: 700; }
+.mk-preset-cancel { border: 1px solid #cbd5e1 !important; background: #fff !important; color: #334155 !important; }
+.mk-sec.mk-presets { border-top: 0; margin-top: 0; padding-top: 0; }
+.mk-presets + .mk-sec { border-top: 1px solid #e5e7eb; margin-top: 12px; padding-top: 12px; }
+@media screen and (max-width: 720px) {
+  html body #adminMakerPage#adminMakerPage .mk-presets button { height: 32px !important; min-height: 0 !important; font-size: 13px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-preset-apply { padding: 0 4px 0 12px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-preset-del { padding: 0 !important; width: 26px !important; }
+  html body #adminMakerPage#adminMakerPage .mk-preset-form button { padding: 0 10px !important; }
+}
+.mk-preset-form[hidden] { display: none !important; }
+.mk-preset-form button { flex: 0 0 auto; white-space: nowrap; }
