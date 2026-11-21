@@ -61,24 +61,29 @@ function openStudentSelectModal() {
     const chosen = new Set(SELECTED_MULTI_STUDENTS.map(s => s.id));
     const primaryId = SELECTED_MULTI_STUDENTS.length ? SELECTED_MULTI_STUDENTS[0].id : '';
     if (!MANAGED_STUDENTS || !MANAGED_STUDENTS.length) {
-        listDiv.innerHTML = '<div style="padding:20px; text-align:center; color:#6b7280;">담당 학생이 없습니다.</div>';
+        listDiv.innerHTML = '<div class="mk-pick-empty">담당 학생이 없습니다.</div>';
     }
     (MANAGED_STUDENTS || []).forEach(student => {
         const label = document.createElement('label');
         label.className = 'mk-pick-row';
         label.dataset.search = (student.name + ' ' + student.id).toLowerCase();
-        label.style.cssText = 'display:flex; align-items:center; gap:10px; padding:10px; border:1px solid #eee; border-radius:8px; cursor:pointer;';
         label.innerHTML = `
             <input type="checkbox" class="student-select-chk" value="${escapeAttr(student.id)}" data-name="${escapeAttr(student.name)}"
-                ${chosen.has(student.id) ? 'checked' : ''} style="width:18px; height:18px;">
-            <span style="font-size:15px;">${escapeHTML(student.name)} (${escapeHTML(student.id)})
-                ${student.id === primaryId ? '<span style="color:#2b6cb0; font-size:12px;">[기준 학생]</span>' : ''}</span>`;
+                ${chosen.has(student.id) ? 'checked' : ''}>
+            <span title="${escapeAttr(student.name + ' (' + student.id + ')')}">${escapeHTML(student.name)} <small style="color:#6b7280;">(${escapeHTML(student.id)})</small>${student.id === primaryId ? ' <small style="color:#2b6cb0; font-weight:700;">기준</small>' : ''}</span>`;
         listDiv.appendChild(label);
     });
     const search = document.getElementById('studentSelectSearch');
     if (search) search.value = '';
+    _mkPickCount();
+    listDiv.onchange = _mkPickCount;
     document.getElementById('adminStudentSelectModal').style.display = 'flex';
     if (search) setTimeout(() => { try { search.focus(); } catch (e) {} }, 30);
+}
+
+function _mkPickCount() {
+    const el = document.getElementById('mkPickCount');
+    if (el) el.textContent = document.querySelectorAll('.student-select-chk:checked').length + '명 선택';
 }
 
 function filterStudentSelectList(q) {

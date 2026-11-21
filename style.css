@@ -2334,3 +2334,26 @@ html body #wordPopover.word-popover.no-print button.wp-link,
   }
   #createFooter.maker-cart > #cartListPanel { flex: none; max-height: 50vh; }
 }
+
+/* 출제 대상 학생 선택 창: 넓게(600px), 학생 목록 2열 */
+.mk-pick-box { width: 92%; max-width: 600px; max-height: 92vh; background: #fff; border-radius: 14px; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 25px rgba(0,0,0,.2); }
+.mk-pick-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 20px 24px; border-bottom: 1px solid #eee; background: #f9fafb; }
+.mk-pick-head h3 { margin: 0; font-size: 22px; white-space: nowrap; color: #111827; }
+.mk-pick-close { flex: 0 0 auto; width: 40px !important; height: 40px; margin: 0 !important; padding: 0 !important; border: none !important; border-radius: 8px !important; background: none !important; color: #6b7280 !important; font-size: 28px !important; line-height: 1; cursor: pointer; box-shadow: none !important; }
+.mk-pick-close:hover { background: #e5e7eb !important; }
+.mk-pick-search { padding: 16px 24px 0; }
+.mk-pick-search input { width: 100%; box-sizing: border-box; margin: 0; height: 46px; padding: 0 14px; font-size: 16px; border: 1px solid #d1d5db; border-radius: 10px; }
+.mk-pick-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; padding: 16px 24px; max-height: 600px; overflow-y: auto; }
+.mk-pick-list .mk-pick-row { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px !important; border: 1px solid #e5e7eb !important; border-radius: 10px !important; cursor: pointer; }
+.mk-pick-list .mk-pick-row:has(input:checked) { border-color: #2b6cb0 !important; background: #eff6ff; }
+.mk-pick-list .mk-pick-row input { flex: 0 0 auto; width: 22px !important; height: 22px !important; margin: 0; }
+.mk-pick-list .mk-pick-row span { font-size: 17px !important; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-pick-list .mk-pick-empty { grid-column: 1 / -1; padding: 20px; text-align: center; color: #6b7280; }
+.mk-pick-foot { display: flex; align-items: center; gap: 10px; padding: 16px 24px; border-top: 1px solid #eee; }
+.mk-pick-count { margin-right: auto; font-size: 15px; color: #475569; }
+.mk-pick-foot button { width: auto !important; height: 52px; margin: 0 !important; padding: 0 24px !important; border-radius: 10px !important; font-size: 17px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; }
+.mk-pick-cancel { border: 1px solid #d1d5db !important; background: #fff !important; color: #374151 !important; }
+.mk-pick-ok { min-width: 160px; border: none !important; background: #2b6cb0 !important; color: #fff !important; }
+@media screen and (max-width: 520px) {
+  .mk-pick-list { grid-template-columns: minmax(0, 1fr); }
+}

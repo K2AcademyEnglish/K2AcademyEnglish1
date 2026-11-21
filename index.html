@@ -11,7 +11,7 @@
   <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
   <link rel="apple-touch-icon" href="https://i.imgur.com/NVHBqH2.png">
   <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
-  <link rel="stylesheet" href="style.css?v=20261121a">
+  <link rel="stylesheet" href="style.css?v=20261121b">
   <link rel="stylesheet" href="print.css?v=20261115e">
   <link rel="stylesheet" href="notice-points.css?v=20261119a">
   <link rel="stylesheet" href="ink.css?v=20261118a">
@@ -624,17 +624,17 @@
 
 <!-- [추가] 학생 다중 선택 모달 -->
 <div id="adminStudentSelectModal" class="loading-overlay" style="background: rgba(0,0,0,0.5); z-index: 12000;">
-  <div style="background:#fff; width:90%; max-width:400px; border-radius:12px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 25px rgba(0,0,0,0.2);">
-    <div style="padding:16px; border-bottom:1px solid #eee; background:#f9fafb; display:flex; justify-content:space-between; align-items:center;">
-      <h3 style="margin:0; font-size:17px;">출제 대상 학생 선택</h3>
-      <button onclick="closeStudentSelectModal()" style="border:none; background:none; font-size:20px; cursor:pointer;">&times;</button>
+  <div class="mk-pick-box" role="dialog" aria-modal="true" aria-labelledby="mkPickTitle">
+    <div class="mk-pick-head">
+      <h3 id="mkPickTitle">출제 대상 학생 선택</h3>
+      <button type="button" class="mk-pick-close" onclick="closeStudentSelectModal()" aria-label="닫기">&times;</button>
     </div>
-    <div style="padding:12px 15px 0;"><input type="search" id="studentSelectSearch" placeholder="이름 또는 ID로 찾기" aria-label="학생 찾기" oninput="filterStudentSelectList(this.value)" style="width:100%; box-sizing:border-box; margin:0; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px;"></div>
-    <div id="studentSelectList" style="padding:15px; max-height:400px; overflow-y:auto; display:flex; flex-direction:column; gap:10px;">
-    </div>
-    <div style="padding:12px; border-top:1px solid #eee; display:flex; gap:8px;">
-      <button onclick="applyMultiStudentSelection()" class="btn-primary" style="flex:1;">선택 완료</button>
-      <button onclick="closeStudentSelectModal()" class="btn-ghost" style="width:80px;">취소</button>
+    <div class="mk-pick-search"><input type="search" id="studentSelectSearch" placeholder="이름 또는 ID로 찾기" aria-label="학생 찾기" oninput="filterStudentSelectList(this.value)"></div>
+    <div id="studentSelectList" class="mk-pick-list"></div>
+    <div class="mk-pick-foot">
+      <span id="mkPickCount" class="mk-pick-count"></span>
+      <button type="button" onclick="closeStudentSelectModal()" class="mk-pick-cancel">취소</button>
+      <button type="button" onclick="applyMultiStudentSelection()" class="mk-pick-ok">선택 완료</button>
     </div>
   </div>
 </div>
@@ -657,7 +657,7 @@
   <script src="vocab.js?v=20261119a"></script>
   <script src="student-quiz.js?v=20261119a"></script>
   <script src="ink.js?v=20261118a"></script>
-  <script src="admin-maker.js?v=20261121a"></script>
+  <script src="admin-maker.js?v=20261121b"></script>
   <script src="qbank.js?v=20261120b"></script>
   <script src="students.js?v=20261117a"></script>
   <script src="print-report.js?v=20261120a"></script>
