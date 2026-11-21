@@ -2560,3 +2560,14 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 }
 .mk-preset-form[hidden] { display: none !important; }
 .mk-preset-form button { flex: 0 0 auto; white-space: nowrap; }
+/* 바구니 탭과 최근 과제 탭의 폭을 같게(최근 과제 폭 440px 기준) */
+#createFooter.maker-cart, #createFooter.maker-cart.mc-wide { width: 440px; flex: 0 0 440px; min-width: 0; }
+@media screen and (min-width: 721px) {
+  body.admin-create-mode #createFooter.maker-cart, body.admin-create-mode #createFooter.maker-cart.mc-wide { width: 440px; flex: 0 0 440px; min-width: 0; }
+}
+@media screen and (min-width: 721px) and (max-width: 1280px) {
+  body.admin-create-mode #createFooter.maker-cart, body.admin-create-mode #createFooter.maker-cart.mc-wide { width: 360px; flex-basis: 360px; }
+}
+@media screen and (max-width: 720px) {
+  #createFooter.maker-cart, #createFooter.maker-cart.mc-wide, body.admin-create-mode #createFooter.maker-cart, body.admin-create-mode #createFooter.maker-cart.mc-wide { width: 100%; flex: 0 0 auto; }
+}
