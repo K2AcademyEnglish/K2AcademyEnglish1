@@ -2756,7 +2756,8 @@ window.OMRL = (function () {
     const f = info(c);
     const btnOnline = Array.from(c.querySelectorAll('.q-header-flex .btn-exp')).find(b => !b.hasAttribute('data-exp-btn'));
     const btnExp = c.querySelector('button[data-exp-btn]');
-    const showOnline = btnOnline && btnOnline.style.display !== 'none';
+    // 결과 보기(완료된 과제)에서도 시험지를 열어 지문 단어를 찾을 수 있게 합니다. 입력칸이 잠겨 있어 답은 바뀌지 않습니다.
+    const showOnline = !!btnOnline;
     const showExp = btnExp && btnExp.style.display !== 'none';
     const onlineOpen = S.paper;
     const expOpen = c.classList.contains('exp-open');
@@ -2884,7 +2885,7 @@ window.OMRL = (function () {
       paintDock(false);
     } else if (a === 'exp') {
       const b = c.querySelector('button[data-exp-btn]');
-      if (b) { b.click(); setTimeout(() => { paintRows(); paintDock(false); }, 60); }
+      if (b) { b.click(); setTimeout(() => { paintRows(); paintDock(false); syncPaperExp(true); }, 60); }
     }
   }
   function onDockInput(e) {
@@ -2909,7 +2910,7 @@ window.OMRL = (function () {
   }
   function schedule() {
     if (S.raf) return;
-    S.raf = requestAnimationFrame(() => { S.raf = 0; if (!active()) return; paintRows(); if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#omrDock')) paintDock(false); });
+    S.raf = requestAnimationFrame(() => { S.raf = 0; if (!active()) return; paintRows(); syncPaperExp(false); if (!document.activeElement || !document.activeElement.closest || !document.activeElement.closest('#omrDock')) paintDock(false); });
   }
   function firstTarget() {
     const all = cards().map(info);
@@ -2928,6 +2929,7 @@ window.OMRL = (function () {
     const box = paper && paper.querySelector('.online-box');
     if (!box) return;
     const c = card(S.paperIdx);
+    box.querySelectorAll('.op-exp').forEach(x => x.remove());   // 시험지에 붙인 해설은 카드로 돌려놓을 때 뗍니다
     box.style.display = 'none';
     if (c) c.insertBefore(box, c.querySelector(':scope > .explanation-box'));
     else box.remove();
@@ -2959,10 +2961,36 @@ window.OMRL = (function () {
       const saved = typeof getSavedOnlineFont === 'function' ? getSavedOnlineFont() : null;
       if (typeof applyOnlineFont === 'function') applyOnlineFont(box, saved);
       paper.scrollTop = 0;
+      syncPaperExp(false);
     } catch (err) {
       if (seq === S.paperSeq) paper.innerHTML = '<div class="od-paper-loading">문항을 불러오지 못했습니다. 다시 눌러 주세요.</div>';
     }
     fitBody();
+  }
+  /* 해설을 온라인 시험지 안에도 보여 줍니다(온라인 풀이 화면처럼 선택지 아래).
+   * 카드의 해설 상자가 열려 있으면 같은 내용을 시험지 오른쪽(선택지 칸) 맨 아래에 붙이고, 닫히면 뗍니다. */
+  function syncPaperExp(scroll) {
+    if (!S.paper) return;
+    const dk = document.getElementById('omrDock');
+    const paper = dk && dk.querySelector('.od-paper');
+    const box = paper && paper.querySelector('.online-box');
+    if (!box) return;
+    const c = card(S.paperIdx);
+    const exp = c && c.querySelector(':scope > .explanation-box');
+    const open = !!(exp && exp.style.display === 'block');
+    let pe = box.querySelector('.op-exp');
+    if (!open) { if (pe) pe.remove(); return; }
+    if (!pe) {
+      pe = document.createElement('div');
+      pe.className = 'explanation-box op-exp';
+      (box.querySelector(':scope > .op-right') || box.querySelector(':scope > .op-left') || box).appendChild(pe);
+    }
+    if (pe.innerHTML !== exp.innerHTML) pe.innerHTML = exp.innerHTML;
+    pe.style.display = 'block';
+    if (scroll) {
+      const pr = paper.getBoundingClientRect(), er = pe.getBoundingClientRect();
+      if (er.bottom > pr.bottom || er.top < pr.top) paper.scrollTop += er.top - pr.top - 12;
+    }
   }
   function closePaper() {
     S.paperSeq++;
