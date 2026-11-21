@@ -2357,3 +2357,18 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 @media screen and (max-width: 520px) {
   .mk-pick-list { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* 발음 듣기(🔊) 버튼 */
+.tts-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px !important; height: 28px; min-width: 0; margin: 0 0 0 2px !important; padding: 0 !important;
+  border: none !important; border-radius: 50% !important; background: transparent !important; box-shadow: none !important; font-size: 15px !important; line-height: 1; cursor: pointer; vertical-align: middle; color: inherit; }
+.tts-btn:hover { background: #e0e7ff !important; }
+.tts-btn:active { transform: scale(.92); }
+.tts-btn-lg { width: 40px !important; height: 40px; flex: 0 0 auto; font-size: 18px !important; border: 1px solid #cbd5e1 !important; border-radius: 8px !important; background: #fff !important; }
+.word-popover .wp-head .wp-tts { flex: 0 0 34px; width: 34px !important; min-width: 34px !important; height: 34px; border-radius: 8px !important; background: #eef2ff !important; }
+/* 단어 가리기 모드에서도 🔊는 보이게(듣고 맞히기) */
+.vp-hide-word .vw-word:not(.revealed) .tts-btn { color: initial; }
+
+/* 단어 시험의 🔊: 문제 글자 크기에 맞게 */
+.vt-prompt .vt-tts { width: 44px !important; height: 44px; font-size: 24px !important; background: #eef2ff !important; margin-left: 6px !important; vertical-align: 4px; }
+.vt-reveal .vt-tts, .vt-no .vt-tts { width: 34px !important; height: 34px; font-size: 18px !important; background: #fff !important; }
+.vt-card [hidden] { display: none !important; }

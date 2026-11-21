@@ -517,7 +517,7 @@ function renderMiniWordList() {
   }
   box.innerHTML = list.map(x => `
     <div class="vd-item" data-word="${escapeHTML(x.word).replace(/"/g, '&quot;')}">
-      <div class="vd-item-main"><b>${escapeHTML(x.word)}</b><span>${escapeHTML(x.meaning)}</span></div>
+      <div class="vd-item-main"><b>${escapeHTML(x.word)} ${ttsBtnHtml(x.word)}</b><span>${escapeHTML(x.meaning)}</span></div>
       <button type="button" class="vd-btn vd-btn-mini" data-act="edit">수정</button>
     </div>`).join('');
 }
@@ -750,6 +750,7 @@ function _ensureWordPopover() {
   pop.innerHTML = `
     <div class="wp-head">
       <input type="text" class="wp-word" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="단어">
+      <button type="button" class="wp-btn tts-btn wp-tts" aria-label="발음 듣기" title="발음 듣기">🔊</button>
       <button type="button" class="wp-btn wp-close" aria-label="닫기">✕</button>
     </div>
     <div class="wp-status"></div>
@@ -764,6 +765,7 @@ function _ensureWordPopover() {
   pop.addEventListener('mousedown', e => e.stopPropagation());
   pop.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
   pop.querySelector('.wp-close').addEventListener('click', hideWordPopover);
+  pop.querySelector('.wp-tts').addEventListener('click', () => speakWord(pop.querySelector('.wp-word').value));
   pop.querySelector('.wp-dict').addEventListener('click', () => openDictionary(pop.querySelector('.wp-word').value));
   pop.querySelector('.wp-save').addEventListener('click', _saveFromPopover);
   pop.querySelector('.wp-meaning').addEventListener('keydown', e => { if (e.key === 'Enter') _saveFromPopover(); });
@@ -892,6 +894,7 @@ function hideWordPopover() {
   const wasOpen = pop && pop.style.display !== 'none';
   if (pop) pop.style.display = 'none';
   _wordPopRange = null;
+  _wordPopSig = ''; _wordPopNode = null;
   if (wasOpen) {
     try {
       const sel = window.getSelection();
@@ -917,6 +920,10 @@ function _saveFromPopover() {
 // 지문(문제 풀이 화면) 안에서 영어 단어가 선택되면 단어 카드를 띄웁니다.
 function _checkWordSelection() {
   if (!CURRENT_USER || CURRENT_USER.role === 'manager') return;
+  // 단어 카드 안(뜻 입력·추천 뜻·버튼)을 쓰는 중이면 지문 선택을 다시 읽지 않습니다.
+  const pop = document.getElementById('wordPopover');
+  const popOpen = pop && pop.style.display !== 'none';
+  if (popOpen && document.activeElement && pop.contains(document.activeElement)) return;
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return;
   const text = sel.toString().replace(/[’‘]/g, "'").trim().replace(/^[^A-Za-z]+|[^A-Za-z]+$/g, '');
@@ -924,15 +931,27 @@ function _checkWordSelection() {
   const node = sel.anchorNode;
   const el = node && (node.nodeType === 1 ? node : node.parentElement);
   if (!el || !el.closest('#quizPage, #omrPaper') || el.closest('input, textarea, button, .omr-options-wrap, .op-opt, .op-font-bar')) return;
-  showWordPopover(text, sel.getRangeAt(0));
+  // 이미 같은 선택으로 카드가 떠 있으면 그대로 둡니다(새로 채우면 고른 뜻·입력이 지워짐).
+  const range = sel.getRangeAt(0);
+  const sig = text + '|' + range.startOffset + '|' + range.endOffset;
+  if (popOpen && _wordPopSig === sig && range.startContainer === _wordPopNode) return;
+  _wordPopSig = sig; _wordPopNode = range.startContainer;
+  showWordPopover(text, range);
 }
 
+let _wordPopSig = '', _wordPopNode = null;
 function initPassageWordPicker() {
   const schedule = (delay) => { clearTimeout(_wordPickTimer); _wordPickTimer = setTimeout(_checkWordSelection, delay); };
-  document.addEventListener('mouseup', e => { if (!e.target.closest || !e.target.closest('#wordPopover')) schedule(200); });
-  document.addEventListener('touchend', () => schedule(450));
+  const inPop = e => !!(e && e.target && e.target.closest && e.target.closest('#wordPopover'));
+  document.addEventListener('mouseup', e => { if (!inPop(e)) schedule(200); });
+  document.addEventListener('touchend', e => { if (!inPop(e)) schedule(450); });
   // 휴대폰에서 길게 눌러 선택 범위를 조정할 때
-  document.addEventListener('selectionchange', () => { if (window.innerWidth < 821) schedule(600); });
+  document.addEventListener('selectionchange', () => {
+    if (window.innerWidth >= 821) return;
+    const pop = document.getElementById('wordPopover');
+    if (pop && pop.style.display !== 'none' && document.activeElement && pop.contains(document.activeElement)) return;
+    schedule(600);
+  });
   // 카드 밖을 누르면 닫기
   const outside = e => { if (!e.target.closest || !e.target.closest('#wordPopover')) hideWordPopover(); };
   document.addEventListener('mousedown', outside);
@@ -1011,7 +1030,7 @@ function _vpRowHtml(x) {
   <div class="vw-row${x.memorized ? ' done' : ''}${open ? ' open' : ''}" data-word="${_escAttr(w)}">
     <div class="vw-num">${escapeHTML(String(x.number || ''))}</div>
     <div class="vw-main">
-      <div class="vw-word" title="눌러서 펼치기">${escapeHTML(w)}</div>
+      <div class="vw-word" title="눌러서 펼치기">${escapeHTML(w)} ${ttsBtnHtml(w)}</div>
       <div class="vw-meaning">${escapeHTML(String(x.meaning || ''))}</div>
     </div>
     ${_vpMemoHtml(x)}
@@ -1397,11 +1416,13 @@ function _vtRenderQuestion() {
     </div>
     <div class="vt-bar"><div style="width:${Math.round(VT.idx / total * 100)}%"></div></div>`;
   const promptCls = VT.dir === 'e2k' ? 'vt-prompt en' : 'vt-prompt ko';
+  // 영→한이면 문제 단어 옆에 🔊 (한→영은 답이 영어라 미리 들려주지 않고, 답을 본 뒤에 보여 줍니다)
+  const promptHtml = `<div class="${promptCls}">${escapeHTML(_vtPrompt(item))}${VT.dir === 'e2k' ? ' ' + ttsBtnHtml(item.word, 'vt-tts') : ''}</div>`;
   let body = '';
   if (VT.mode === 'card') {
     body = `
-      <div class="${promptCls}">${escapeHTML(_vtPrompt(item))}</div>
-      <div class="vt-reveal" hidden>${escapeHTML(_vtAnswer(item))}</div>
+      ${promptHtml}
+      <div class="vt-reveal" hidden>${escapeHTML(_vtAnswer(item))}${VT.dir === 'k2e' ? ' ' + ttsBtnHtml(item.word, 'vt-tts') : ''}</div>
       <button type="button" class="vt-btn vt-btn-primary vt-wide" data-vt="flip">${VT.dir === 'e2k' ? '뜻 보기' : '단어 보기'}</button>
       <div class="vt-judge" hidden>
         <button type="button" class="vt-btn vt-btn-no" data-vt="dontknow">몰라요</button>
@@ -1410,14 +1431,14 @@ function _vtRenderQuestion() {
   } else if (VT.mode === 'choice') {
     VT.choices = _vtMakeChoices(item, VT.dir);
     body = `
-      <div class="${promptCls}">${escapeHTML(_vtPrompt(item))}</div>
+      ${promptHtml}
       <div class="vt-choices">
         ${VT.choices.map((c, i) => `<button type="button" class="vt-choice" data-vt="choose" data-i="${i}"><span>${'①②③④'[i]}</span>${escapeHTML(c)}</button>`).join('')}
       </div>
       <div class="vt-feedback"></div>`;
   } else {
     body = `
-      <div class="${promptCls}">${escapeHTML(_vtPrompt(item))}</div>
+      ${promptHtml}
       <div class="vt-write">
         <input type="text" id="vtInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="${VT.dir === 'e2k' ? '뜻을 입력하십시오' : '영어 단어를 입력하십시오'}">
         <button type="button" class="vt-btn vt-btn-primary" data-vt="check">확인</button>
@@ -1505,7 +1526,7 @@ function _vtFeedback(ok, item) {
   if (btn) btn.textContent = '다음';
   fb.innerHTML = ok
     ? '<div class="vt-ok">⭕ 정답!</div>'
-    : `<div class="vt-no">❌ 정답: <b>${escapeHTML(_vtAnswer(item))}</b></div><button type="button" class="vt-btn vt-btn-primary vt-wide" data-vt="next">다음</button>`;
+    : `<div class="vt-no">❌ 정답: <b>${escapeHTML(_vtAnswer(item))}</b>${VT.dir === 'k2e' ? ' ' + ttsBtnHtml(item.word, 'vt-tts') : ''}</div><button type="button" class="vt-btn vt-btn-primary vt-wide" data-vt="next">다음</button>`;
   box.querySelector('.vt-score').textContent = '맞힘 ' + VT.correct;
   if (ok) setTimeout(() => { if (VT.answered && VT.items[VT.idx] === item) _vtNext(); }, 700);
   else { const nb = fb.querySelector('[data-vt="next"]'); if (nb) nb.focus(); }
@@ -1856,3 +1877,52 @@ function _vlRender() {
   zone.querySelector('#vlClose').onclick = () => closePrintPreview();
 }
 window.vocabListPrint = vocabListPrint;
+
+/* ===================== 발음 듣기 (TTS) =====================
+ * 브라우저에 들어 있는 음성 합성(Web Speech API)으로 영어 단어를 읽어 줍니다. 서버·요금 없음.
+ * 미국 영어 음성을 우선으로 고르고, 없으면 기기의 기본 영어 음성을 씁니다.
+ * 카카오톡 등 일부 앱 안 브라우저는 지원하지 않을 수 있어, 그때는 안내만 띄웁니다.
+ */
+let _ttsVoiceCache = null;
+function _ttsPickVoice() {
+  if (_ttsVoiceCache) return _ttsVoiceCache;
+  const vs = (window.speechSynthesis && speechSynthesis.getVoices()) || [];
+  const en = vs.filter(v => /^en[-_]/i.test(v.lang || ''));
+  const us = en.filter(v => /en[-_]US/i.test(v.lang));
+  const prefer = /Google US English|Samantha|Aria|Jenny|Ava|Allison|Zira|Natural/i;
+  _ttsVoiceCache = us.find(v => prefer.test(v.name)) || us.find(v => v.localService) || us[0] || en[0] || null;
+  return _ttsVoiceCache;
+}
+if (window.speechSynthesis && 'onvoiceschanged' in speechSynthesis) {
+  speechSynthesis.addEventListener('voiceschanged', () => { _ttsVoiceCache = null; });
+}
+function speakWord(text) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return;
+  if (!window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
+    if (typeof showToast === 'function') showToast('이 브라우저에서는 발음 듣기를 쓸 수 없습니다. 크롬이나 사파리에서 열어 주세요.', 'error');
+    return;
+  }
+  const synth = window.speechSynthesis;
+  const go = () => {
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = 'en-US';
+    const v = _ttsPickVoice();
+    if (v) u.voice = v;
+    u.rate = 0.9;
+    synth.speak(u);
+  };
+  if (synth.speaking || synth.pending) { synth.cancel(); setTimeout(go, 60); } else go();
+}
+function ttsBtnHtml(word, extraClass) {
+  const w = String(word || '');
+  return `<button type="button" class="tts-btn${extraClass ? ' ' + extraClass : ''}" data-speak="${escapeHTML(w).replace(/"/g, '&quot;')}" aria-label="${escapeHTML(w).replace(/"/g, '&quot;')} 발음 듣기" title="발음 듣기">🔊</button>`;
+}
+// 화면 어디서든 data-speak 버튼을 누르면 읽어 줍니다(단어장 목록·드로어·단어 카드 공통).
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('[data-speak]');
+  if (!b) return;
+  e.preventDefault();
+  e.stopPropagation();
+  speakWord(b.dataset.speak || (b.dataset.speakFrom && (document.getElementById(b.dataset.speakFrom) || {}).value));
+}, true);
