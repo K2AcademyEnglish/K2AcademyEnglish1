@@ -2590,3 +2590,10 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 @media screen and (max-width: 720px) {
   html body #adminMakerPage#adminMakerPage .mk-ac-toggle, html body #adminMakerPage#adminMakerPage .mk-ac-clear { height: 28px !important; min-height: 0 !important; padding: 0 10px !important; font-size: 12px !important; }
 }
+/* 문제 유형 체크 목록 */
+.mk-typelist { max-height: 34vh; display: block; }
+.mk-typelist .mk-tree-row { cursor: pointer; }
+.mk-typelist .mk-type-all { border-bottom: 1px solid #e5e7eb; border-radius: 6px 6px 0 0; margin-bottom: 2px; }
+.mk-typelist .mk-type-off { opacity: .45; }
+.mk-typelist .mk-tree-name { flex: 1 1 auto; }
+.mk-typelist .mk-tree-name:hover { background: none; text-decoration: none; }

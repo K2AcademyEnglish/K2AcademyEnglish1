@@ -603,8 +603,9 @@ function initInventoryFilters() {
   // ★ 난이도는 숫자 크기대로 정렬 (1 -> 2 -> 3...)
   const allDiffs = [...new Set(INVENTORY_DATA.map(x => x.difficulty).filter(Boolean))]
       .sort((a, b) => Number(a) - Number(b));
+  MK_ALL_TYPES = allTypes;
   initInventoryChips = () => {
-      renderInvChipsV2('invTypeChips', allTypes, 'types', invSelState['common']);
+      renderTypeList();
       renderInvChipsV2('invDiffChips', allDiffs, 'difficulties', invSelState['common']);
   };
   initInventoryChips();
@@ -614,6 +615,54 @@ function initInventoryFilters() {
   if (typeof renderMakerPresets === 'function') renderMakerPresets();
 }
 let initInventoryChips = () => {};
+let MK_ALL_TYPES = [];
+
+/* 문제 유형: 체크 목록(출처와 같은 모양). 숫자는 지금 고른 출처 안의 문항 수입니다. */
+function renderTypeList() {
+  const box = document.getElementById('invTypeChips');
+  if (!box) return;
+  box.className = 'mk-tree mk-typelist';
+  if (!MK_ALL_TYPES.length) { box.innerHTML = '<div class="mk-tree-empty">학생을 고르면 유형 목록이 나옵니다.</div>'; return; }
+  const eff = _mkEffectiveSrc();
+  const cnt = new Map();
+  INVENTORY_DATA.forEach(r => {
+    if (eff.size) {
+      const p = _mkRowPath(r); let k = '', ok = false;
+      for (let i = 0; i < p.length && p[i]; i++) { k = k ? k + _SEP + p[i] : p[i]; if (eff.has(k)) { ok = true; break; } }
+      if (!ok) return;
+    }
+    cnt.set(r.type, (cnt.get(r.type) || 0) + 1);
+  });
+  const sel = invSelState.common.types;
+  const exDesc = !!(document.getElementById('chkExcludeDescriptive') || {}).checked;
+  const pickable = MK_ALL_TYPES.filter(t => !(exDesc && String(t).includes('서술형')));
+  const allOn = pickable.length > 0 && pickable.every(t => sel.has(t));
+  const total = pickable.reduce((a, t) => a + (cnt.get(t) || 0), 0);
+  const row = (val, label, on, n, extra) => `<div class="mk-tree-row${on ? ' on' : ''}${extra || ''}" data-type-row="${escapeAttr(val)}">
+      <input type="checkbox" data-type="${escapeAttr(val)}"${on ? ' checked' : ''} aria-label="${escapeAttr(label)}">
+      <span class="mk-tree-name">${escapeHTML(label)}</span><span class="mk-tree-fill"></span>
+      <span class="mk-tree-cnt">${n}</span></div>`;
+  box.innerHTML = row('__all__', '전체', allOn, total, ' mk-type-all')
+    + MK_ALL_TYPES.map(t => row(t, t, sel.has(t), cnt.get(t) || 0, (exDesc && String(t).includes('서술형')) ? ' mk-type-off' : '')).join('');
+}
+function _mkOnTypeClick(e) {
+  const rowEl = e.target.closest('.mk-tree-row[data-type-row]');
+  if (!rowEl) return;
+  const val = rowEl.dataset.typeRow;
+  const cb = rowEl.querySelector('input[data-type]');
+  const sel = invSelState.common.types;
+  // 줄 어디를 눌러도 체크가 바뀝니다(체크 상자를 직접 누른 경우는 브라우저가 이미 바꿈).
+  const on = e.target === cb ? cb.checked : !cb.checked;
+  if (val === '__all__') {
+    const exDesc = !!(document.getElementById('chkExcludeDescriptive') || {}).checked;
+    sel.clear();
+    if (on) MK_ALL_TYPES.forEach(t => { if (!(exDesc && String(t).includes('서술형'))) sel.add(t); });
+  } else {
+    if (on) sel.add(val); else sel.delete(val);
+  }
+  renderTypeList();
+  renderInventoryTable();
+}
 
 // 3. 테이블 렌더링 (OR 필터 적용)
 /* ===================== 과제출제 목록 (A안) =====================
@@ -889,7 +938,7 @@ function _mkRenderActiveChips(count) {
     MK_AC_OPEN = false;
     box.innerHTML = chips.map(chipHtml).join('');
   } else {
-    box.innerHTML = `<span class="mk-ac-sum">조건 <b>${chips.length}</b>개가 설정되었습니다.
+    box.innerHTML = `<span class="mk-ac-sum"><span>조건 <b>${chips.length}</b>개가 설정되었습니다.</span>
         <button type="button" class="mk-ac-toggle" data-ac-toggle aria-expanded="${MK_AC_OPEN}">${MK_AC_OPEN ? '접기 ▴' : '보기 ▾'}</button>
         <button type="button" class="mk-ac-clear" data-ac-clear>모두 해제</button></span>
       ${MK_AC_OPEN ? `<div class="mk-ac-list">${chips.map(chipHtml).join('')}</div>` : ''}`;
@@ -932,6 +981,7 @@ function resetMakerFilters() {
 function renderInventoryTable() {
   const tbody = document.getElementById('invTbody');
   if (!tbody) return;
+  renderTypeList();
   const recentHint = document.getElementById('invRecentHint');
   if (recentHint) recentHint.hidden = true;
   _mkUpdateHeadArrows();
@@ -1114,6 +1164,8 @@ function bindInventoryEvents() {
 
     const tree = document.getElementById('invSrcTree');
     if (tree) { tree.onchange = _mkOnSrcChange; tree.onclick = _mkOnSrcClick; }
+    const typeBox = document.getElementById('invTypeChips');
+    if (typeBox) typeBox.onclick = _mkOnTypeClick;
     const sortBar = document.getElementById('invSortBar');
     if (sortBar) { sortBar.onclick = _mkOnSortClick; renderSortBar(); }
     const ac = document.getElementById('invActiveChips');
@@ -2858,8 +2910,15 @@ function _mkBindInsight(box) {
     box.querySelectorAll('.mk-ins-days button[data-days]').forEach(b => { b.onclick = () => setMakerInsightDays(Number(b.dataset.days)); });
     box.querySelectorAll('.mk-ins-chip').forEach(btn => {
         btn.onclick = () => {
-            const boxId = btn.dataset.kind === 'type' ? 'invTypeChips' : 'invDiffChips';
-            const chip = Array.from(document.querySelectorAll('#' + boxId + ' .inv-chip'))
+            if (btn.dataset.kind === 'type') {
+                const t = btn.dataset.val, sel = invSelState.common.types;
+                if (!MK_ALL_TYPES.includes(t)) { showToast('목록에 해당 문항이 없습니다.', 'error'); return; }
+                if (sel.has(t)) sel.delete(t); else sel.add(t);
+                renderInventoryTable();
+                syncMakerInsightChips();
+                return;
+            }
+            const chip = Array.from(document.querySelectorAll('#invDiffChips .inv-chip'))
                 .find(c => c.textContent.trim() === String(btn.dataset.val));
             if (!chip) { showToast('목록에 해당 문항이 없습니다.', 'error'); return; }
             chip.click();
@@ -2948,7 +3007,8 @@ function toggleRecentAssignmentsPanel(forceState) {
 // 왼쪽 필터 칩의 선택 상태를 위 칩에도 표시
 function syncMakerInsightChips() {
     document.querySelectorAll('#makerInsight .mk-ins-chip').forEach(btn => {
-        const boxId = btn.dataset.kind === 'type' ? 'invTypeChips' : 'invDiffChips';
+        if (btn.dataset.kind === 'type') { btn.classList.toggle('on', invSelState.common.types.has(btn.dataset.val)); return; }
+        const boxId = 'invDiffChips';
         const chip = Array.from(document.querySelectorAll('#' + boxId + ' .inv-chip'))
             .find(c => c.textContent.trim() === String(btn.dataset.val));
         btn.classList.toggle('on', !!(chip && chip.classList.contains('selected')));
