@@ -424,6 +424,7 @@ function loadInventoryData(opts) {
   invSelState.common.types.clear();
   invSelState.common.difficulties.clear();
   INV_SRC_SEL.clear();
+  INV_SRC_OPEN.clear();
   INV_CHECKED.clear();
 
   if (document.getElementById('chkInvExcludeSolved')) document.getElementById('chkInvExcludeSolved').checked = false;
@@ -662,11 +663,30 @@ function _mkSortedChildren(node) {
   const lv = arr.length ? arr[0].level : 0;
   return arr.sort((a, b) => {
     if (lv === 0) return _mkGradeIdx(a.name) - _mkGradeIdx(b.name) || a.name.localeCompare(b.name);
-    if (lv === 1) return String(b.name).localeCompare(String(a.name), undefined, { numeric: true });   // 최근 연도 먼저
+    if (lv === 1) return String(a.name).localeCompare(String(b.name), undefined, { numeric: true });   // 연도 오름차순 (오래된 연도 먼저)
     if (lv === 2) return _mkMonthNum(a.name) - _mkMonthNum(b.name) || a.name.localeCompare(b.name);
     return a.name.localeCompare(b.name, undefined, { numeric: true });
   });
 }
+const INV_SRC_OPEN = new Set();   // 펼쳐 둔 출처 경로(체크와 따로)
+function _mkFindNode(key) {
+  let n = INV_SRC_TREE;
+  for (const part of String(key).split(_SEP)) { n = n && n.children.get(part); }
+  return n || null;
+}
+function _mkDescKeys(node, out) {
+  node.children.forEach(ch => { out.push(ch.key); _mkDescKeys(ch, out); });
+  return out;
+}
+// 그 항목과 아래 항목이 모두 체크되어 있는지
+function _mkAllChecked(node) {
+  return INV_SRC_SEL.has(node.key) && _mkDescKeys(node, []).every(k => INV_SRC_SEL.has(k));
+}
+/* 출처 목록 조작
+ * - 체크 상자: 그 항목만 체크/해제(해제하면 아래 항목도 함께 해제). 체크하면 아래 목록이 펼쳐집니다.
+ * - 이름(글자): 그 항목과 아래 항목 전부를 한 번에 체크(이미 전부 체크돼 있으면 전부 해제)
+ * - 빈 곳(줄의 나머지 부분 · ▸): 체크하지 않고 아래 목록만 펼치기/접기
+ */
 function renderSrcTree() {
   const box = document.getElementById('invSrcTree');
   if (!box) return;
@@ -674,10 +694,18 @@ function renderSrcTree() {
   const LV = ['학년', '연도', '월', '세부'];
   const draw = (node, depth) => _mkSortedChildren(node).map(ch => {
     const on = INV_SRC_SEL.has(ch.key);
-    const kids = on && ch.children.size ? `<div class="mk-tree-kids" role="group" aria-label="${escapeAttr(ch.name)} ${LV[depth + 1] || ''}">${draw(ch, depth + 1)}</div>` : '';
+    const hasKids = ch.children.size > 0;
+    const open = hasKids && INV_SRC_OPEN.has(ch.key);
+    const all = on && hasKids && _mkAllChecked(ch);
+    const kids = open ? `<div class="mk-tree-kids" role="group" aria-label="${escapeAttr(ch.name)} ${LV[depth + 1] || ''}">${draw(ch, depth + 1)}</div>` : '';
     return `<div class="mk-tree-node lv${depth}">
-      <label class="mk-tree-row${on ? ' on' : ''}"><input type="checkbox" data-src="${escapeAttr(ch.key)}"${on ? ' checked' : ''}>
-        <span class="mk-tree-name">${escapeHTML(ch.name)}</span><span class="mk-tree-cnt">${ch.count}</span></label>${kids}</div>`;
+      <div class="mk-tree-row${on ? ' on' : ''}${all ? ' all' : ''}" data-row="${escapeAttr(ch.key)}">
+        <input type="checkbox" data-src="${escapeAttr(ch.key)}"${on ? ' checked' : ''} aria-label="${escapeAttr(ch.name)} 체크">
+        <span class="mk-tree-name" data-src-all="${escapeAttr(ch.key)}" title="${hasKids ? '누르면 아래 항목까지 전부 체크' : '누르면 체크'}">${escapeHTML(ch.name)}</span>
+        <span class="mk-tree-fill"${hasKids ? ` title="${open ? '접기' : '펼치기'}"` : ''}></span>
+        <span class="mk-tree-cnt">${ch.count}</span>
+        ${hasKids ? `<span class="mk-tree-caret" aria-hidden="true">${open ? '▾' : '▸'}</span>` : '<span class="mk-tree-caret"></span>'}
+      </div>${kids}</div>`;
   }).join('');
   box.innerHTML = draw(INV_SRC_TREE, 0);
 }
@@ -685,10 +713,36 @@ function _mkOnSrcChange(e) {
   const cb = e.target.closest('input[data-src]');
   if (!cb) return;
   const key = cb.dataset.src;
-  if (cb.checked) INV_SRC_SEL.add(key);
+  if (cb.checked) { INV_SRC_SEL.add(key); INV_SRC_OPEN.add(key); }
   else Array.from(INV_SRC_SEL).forEach(k => { if (k === key || k.indexOf(key + _SEP) === 0) INV_SRC_SEL.delete(k); });
   renderSrcTree();
   renderInventoryTable();
+}
+function _mkOnSrcClick(e) {
+  if (e.target.closest('input[data-src]')) return;              // 체크 상자는 change에서 처리
+  const row = e.target.closest('.mk-tree-row');
+  if (!row) return;
+  const key = row.dataset.row;
+  const node = _mkFindNode(key);
+  if (!node) return;
+  const nameEl = e.target.closest('[data-src-all]');
+  if (nameEl) {
+    // 이름: 아래까지 전부 체크 / 전부 해제
+    const keys = [key].concat(_mkDescKeys(node, []));
+    if (_mkAllChecked(node)) {
+      Array.from(INV_SRC_SEL).forEach(k => { if (k === key || k.indexOf(key + _SEP) === 0) INV_SRC_SEL.delete(k); });
+    } else {
+      keys.forEach(k => INV_SRC_SEL.add(k));
+      if (node.children.size) INV_SRC_OPEN.add(key);
+    }
+    renderSrcTree();
+    renderInventoryTable();
+    return;
+  }
+  // 빈 곳: 펼치기/접기만
+  if (!node.children.size) return;
+  if (INV_SRC_OPEN.has(key)) INV_SRC_OPEN.delete(key); else INV_SRC_OPEN.add(key);
+  renderSrcTree();
 }
 // 실제로 거르는 데 쓰는 경로: 체크했고, 그 아래를 하나도 체크하지 않은 것
 function _mkEffectiveSrc() {
@@ -832,6 +886,7 @@ function _mkOnActiveChipClick(e) {
 
 function resetMakerFilters() {
   INV_SRC_SEL.clear();
+  INV_SRC_OPEN.clear();
   invSelState.common.types.clear();
   invSelState.common.difficulties.clear();
   INV_CHECKED.clear();
@@ -1027,7 +1082,7 @@ function bindInventoryEvents() {
     if (tbody) { tbody.onchange = null; tbody.onclick = _mkOnRowClick; }
 
     const tree = document.getElementById('invSrcTree');
-    if (tree) tree.onchange = _mkOnSrcChange;
+    if (tree) { tree.onchange = _mkOnSrcChange; tree.onclick = _mkOnSrcClick; }
     const sortBar = document.getElementById('invSortBar');
     if (sortBar) { sortBar.onclick = _mkOnSortClick; renderSortBar(); }
     const ac = document.getElementById('invActiveChips');
@@ -2931,6 +2986,7 @@ function applyMakerPreset(i) {
   const c = p.c || {};
   INV_SRC_SEL.clear();
   (c.src || []).forEach(k => INV_SRC_SEL.add(k));
+  (c.src || []).forEach(k => { const parts = k.split(_SEP); for (let i = 1; i < parts.length; i++) INV_SRC_OPEN.add(parts.slice(0, i).join(_SEP)); if ((c.src || []).length < 6) INV_SRC_OPEN.add(k); });
   invSelState.common.types.clear(); (c.types || []).forEach(t => invSelState.common.types.add(t));
   invSelState.common.difficulties.clear(); (c.diffs || []).forEach(d => invSelState.common.difficulties.add(String(d)));
   const set = (id, on) => { const el = document.getElementById(id); if (el) el.checked = !!on; };

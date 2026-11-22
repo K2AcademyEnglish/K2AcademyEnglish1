@@ -2571,3 +2571,10 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 @media screen and (max-width: 720px) {
   #createFooter.maker-cart, #createFooter.maker-cart.mc-wide, body.admin-create-mode #createFooter.maker-cart, body.admin-create-mode #createFooter.maker-cart.mc-wide { width: 100%; flex: 0 0 auto; }
 }
+/* 출처 목록: 체크 상자 = 그 항목만, 이름 = 아래까지 전부, 빈 곳 = 펼치기/접기 */
+.mk-tree-row { user-select: none; }
+.mk-tree-name { flex: 0 1 auto; cursor: pointer; padding: 2px 4px; margin: -2px 0; border-radius: 4px; }
+.mk-tree-name:hover { background: #dbeafe; color: #1e3a8a; text-decoration: underline; }
+.mk-tree-fill { flex: 1 1 auto; align-self: stretch; min-width: 12px; }
+.mk-tree-caret { flex: 0 0 14px; width: 14px; text-align: center; color: #94a3b8; font-size: 12px; }
+.mk-tree-row.all .mk-tree-name::after { content: ' 전체'; font-size: 10px; font-weight: 700; color: #2b6cb0; }
