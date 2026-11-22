@@ -858,20 +858,51 @@ function sortInventory(col) {
 }
 
 // 목록 위에 켜진 조건 칩
+let MK_AC_OPEN = false;      // 켜진 조건 목록 펼침 여부
+const MK_AC_MAX = 3;         // 이 개수보다 많으면 "조건 n개가 설정되었습니다 [보기]"로 줄여서 보여 줌
+// 출처 칩: 아래까지 전부 체크된 항목은 그 항목 하나로 묶어서 보여 줍니다(예: '고1 2024' 하나).
+function _mkSrcChipKeys() {
+  const out = [];
+  if (!INV_SRC_TREE) return out;
+  const eff = _mkEffectiveSrc();
+  const visit = (node) => {
+    node.children.forEach(ch => {
+      if (INV_SRC_SEL.has(ch.key) && _mkAllChecked(ch)) { out.push(ch.key); return; }
+      if (eff.has(ch.key)) { out.push(ch.key); return; }
+      visit(ch);
+    });
+  };
+  visit(INV_SRC_TREE);
+  return out;
+}
 function _mkRenderActiveChips(count) {
   const box = document.getElementById('invActiveChips');
   if (!box) return;
   const chips = [];
-  Array.from(_mkEffectiveSrc()).forEach(k => chips.push({ kind: 'src', val: k, label: k.split(_SEP).join(' ') }));
+  _mkSrcChipKeys().forEach(k => chips.push({ kind: 'src', val: k, label: k.split(_SEP).join(' ') }));
   const types = Array.from(invSelState.common.types);
   if (types.length) chips.push({ kind: 'type', val: '', label: types.length > 3 ? `유형 ${types.length}개` : types.join('·') });
   const diffs = Array.from(invSelState.common.difficulties).map(Number).sort((a, b) => a - b);
   if (diffs.length) chips.push({ kind: 'diff', val: '', label: '난이도 ' + diffs.join(',') });
-  box.innerHTML = chips.map(c => `<span class="mk-ac-chip">${escapeHTML(c.label)}<button type="button" aria-label="조건 끄기" data-ac-kind="${c.kind}" data-ac-val="${escapeAttr(c.val)}">×</button></span>`).join('');
+  const chipHtml = c => `<span class="mk-ac-chip">${escapeHTML(c.label)}<button type="button" aria-label="${escapeAttr(c.label)} 조건 끄기" data-ac-kind="${c.kind}" data-ac-val="${escapeAttr(c.val)}">×</button></span>`;
+  if (chips.length <= MK_AC_MAX) {
+    MK_AC_OPEN = false;
+    box.innerHTML = chips.map(chipHtml).join('');
+  } else {
+    box.innerHTML = `<span class="mk-ac-sum">조건 <b>${chips.length}</b>개가 설정되었습니다.
+        <button type="button" class="mk-ac-toggle" data-ac-toggle aria-expanded="${MK_AC_OPEN}">${MK_AC_OPEN ? '접기 ▴' : '보기 ▾'}</button>
+        <button type="button" class="mk-ac-clear" data-ac-clear>모두 해제</button></span>
+      ${MK_AC_OPEN ? `<div class="mk-ac-list">${chips.map(chipHtml).join('')}</div>` : ''}`;
+  }
   const cnt = document.getElementById('invMatchCount');
   if (cnt) cnt.innerHTML = count == null ? '' : `조건에 맞는 문제 <b>${count}</b>개`;
 }
 function _mkOnActiveChipClick(e) {
+  if (e.target.closest('[data-ac-toggle]')) { MK_AC_OPEN = !MK_AC_OPEN; _mkRenderActiveChips(INV_FILTERED.length); return; }
+  if (e.target.closest('[data-ac-clear]')) {
+    showCustomConfirm('설정한 조건(출처·유형·난이도)을 모두 해제할까요?', () => { MK_AC_OPEN = false; resetMakerFilters(); });
+    return;
+  }
   const b = e.target.closest('button[data-ac-kind]');
   if (!b) return;
   const kind = b.dataset.acKind;

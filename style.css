@@ -2578,3 +2578,15 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 .mk-tree-fill { flex: 1 1 auto; align-self: stretch; min-width: 12px; }
 .mk-tree-caret { flex: 0 0 14px; width: 14px; text-align: center; color: #94a3b8; font-size: 12px; }
 .mk-tree-row.all .mk-tree-name::after { content: ' 전체'; font-size: 10px; font-weight: 700; color: #2b6cb0; }
+/* 켜진 조건이 많을 때: 요약 + 보기 */
+.mk-ac { align-items: center; }
+.mk-ac-sum { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13px; color: #334155; }
+.mk-ac-sum b { color: #1e40af; }
+.mk-ac-toggle, .mk-ac-clear { width: auto !important; height: 28px; margin: 0 !important; padding: 0 10px !important; border-radius: 14px !important; font-size: 12px !important; font-weight: 700; cursor: pointer; box-shadow: none !important; white-space: nowrap; }
+.mk-ac-toggle { border: 1px solid #2b6cb0 !important; background: #eff6ff !important; color: #1e40af !important; }
+.mk-ac-clear { border: 1px solid #cbd5e1 !important; background: #fff !important; color: #64748b !important; }
+.mk-ac-clear:hover { color: #dc2626 !important; border-color: #fca5a5 !important; }
+.mk-ac-list { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; max-height: 160px; overflow: auto; padding: 8px; margin-top: 2px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+@media screen and (max-width: 720px) {
+  html body #adminMakerPage#adminMakerPage .mk-ac-toggle, html body #adminMakerPage#adminMakerPage .mk-ac-clear { height: 28px !important; min-height: 0 !important; padding: 0 10px !important; font-size: 12px !important; }
+}
