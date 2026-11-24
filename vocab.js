@@ -730,6 +730,163 @@ async function vocabSuggest(raw) {
   return { word: w, meanings: list, src: 'web' };
 }
 
+/* ===================== 유의어 · 반의어 · 파생어 (학원 사전 기반) =====================
+ * 학원 사전(dict-ko.json, 해커스 보카 단어·숙어)만으로 계산합니다. 서버 요청 없음, 처음 한 번만 색인을 만듭니다.
+ * - 유의어: 학원 사전에서 '같은 우리말 뜻'을 가진 단어 (겹치는 뜻이 많을수록 앞)
+ * - 반의어: un-/in-/im-/il-/ir-/dis-/non- 이 붙은 짝, -ful ↔ -less 짝(뜻에 '불·비·무·않·없…'이 있는지 확인),
+ *           그리고 그 반대말과 같은 뜻을 가진 단어
+ * - 파생어: 같은 어근(영어 철자)에서 나왔고 우리말 뜻도 겹치는 단어 (decide → decision, decisive)
+ */
+let _vrIndexP = null;
+const _VR_SUF = ['ically','ational','ization','isation','iveness','fulness','lessness','ability','ibility','ation','ition','ement','ments','ment','ness','ity','ance','ence','ancy','ency','ive','ous','ious','eous','ial','al','ful','less','able','ible','ly','er','or','ist','ism','ize','ise','ify','ate','ed','ing','ic','ical','ary','ery','ory','ure','ant','ent','age','ship','hood','sion','tion','s','y']
+  .sort((a, b) => b.length - a.length);
+const _VR_KSUF = ['하는','하게','하다','되다','시키다','적으로','적인','스러운','스럽게','로운','롭게','한','히','적','의','성','함','됨','화','자','가','인','는','을','를','이']
+  .sort((a, b) => b.length - a.length);
+function _vrRoot(w) {
+  let r = w;
+  for (let i = 0; i < 3; i++) {
+    const s = _VR_SUF.find(x => r.endsWith(x) && r.length - x.length >= 4);
+    if (!s) break;
+    r = r.slice(0, -s.length);
+  }
+  if (r.length > 4) r = r.replace(/[eiy]$/, '');
+  if (r.length > 4 && r[r.length - 1] === r[r.length - 2] && !/[aeiou]/.test(r[r.length - 1])) r = r.slice(0, -1);
+  return r;
+}
+function _vrNormMeaning(m) {
+  return String(m).replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/[~∼]\S*\s*/g, '').replace(/\s+/g, '').replace(/^[.,]+|[.,]+$/g, '');
+}
+function _vrKStems(list) {
+  const out = new Set();
+  (list || []).forEach(m => {
+    String(m).replace(/\([^)]*\)|\[[^\]]*\]/g, '').replace(/[~∼]\S*/g, '').split(/[,;/·]/).forEach(part => {
+      const ws = part.trim().split(/\s+/);
+      let t = (ws[ws.length - 1] || '').replace(/[^가-힣]/g, '');
+      for (let k = 0; k < 2; k++) {
+        const s = _VR_KSUF.find(x => t.endsWith(x) && t.length - x.length >= 2);
+        if (!s) break;
+        t = t.slice(0, -s.length);
+      }
+      if (t.length >= 2) out.add(t.slice(0, 2));
+    });
+  });
+  return out;
+}
+function _vrNegMeaning(list) {
+  return (list || []).some(m => /^(불|비|무|부|몰|미|반)|않|없|못|싫|잃/.test(String(m).replace(/\([^)]*\)|[~∼]\S*/g, '').trim()));
+}
+function vocabRelIndex() {
+  if (_vrIndexP) return _vrIndexP;
+  _vrIndexP = vocabDictLoad().then(D => {
+    const inv = new Map();       // 우리말 뜻 → 단어들
+    const bucket = new Map();    // 어근 앞 4글자 → 단어들
+    const root = new Map(), kst = new Map();
+    D.forEach((ms, w) => {
+      ms.forEach(m => {
+        const n = _vrNormMeaning(m);
+        if (n.length < 2) return;
+        if (!inv.has(n)) inv.set(n, new Set());
+        inv.get(n).add(w);
+      });
+      if (/^[a-z]{4,}$/.test(w)) {
+        const r = _vrRoot(w);
+        root.set(w, r);
+        const k = r.slice(0, 4);
+        if (!bucket.has(k)) bucket.set(k, []);
+        bucket.get(k).push(w);
+      }
+    });
+    return { D, inv, bucket, root, kst };
+  });
+  return _vrIndexP;
+}
+function _vrKs(ix, w) {
+  if (!ix.kst.has(w)) ix.kst.set(w, _vrKStems(ix.D.get(w)));
+  return ix.kst.get(w);
+}
+function _vrSyn(ix, w, limit) {
+  const score = new Map();
+  (ix.D.get(w) || []).forEach(m => {
+    const set = ix.inv.get(_vrNormMeaning(m));
+    if (!set || set.size > 12) return;      // '하다'처럼 너무 흔한 뜻은 빼기
+    set.forEach(o => { if (o !== w) score.set(o, (score.get(o) || 0) + 1); });
+  });
+  return Array.from(score.entries()).filter(x => x[0].indexOf('(') < 0).sort((a, b) => b[1] - a[1] || a[0].length - b[0].length).slice(0, limit || 12).map(x => x[0]);
+}
+function _vrDer(ix, w) {
+  if (!/^[a-z]{4,}$/.test(w)) return [];
+  const r = ix.root.get(w) || _vrRoot(w);
+  const mine = _vrKs(ix, w);
+  const out = [];
+  (ix.bucket.get(r.slice(0, 4)) || []).forEach(o => {
+    if (o === w) return;
+    const ro = ix.root.get(o);
+    const n = Math.max(4, Math.min(r.length, ro.length) - 1);
+    if (!(ro.startsWith(r.slice(0, n)) || r.startsWith(ro.slice(0, n)))) return;
+    // 굴절·흔한 접미사 짝(abandon → abandoned)은 뜻이 달라 보여도 넣고, 나머지는 우리말 뜻이 겹칠 때만
+    const simple = o.startsWith(w) && /^(d|ed|ing|ly|ness|ment|er|or|s|es)$/.test(o.slice(w.length));
+    const simpleRev = w.startsWith(o) && /^(d|ed|ing|ly|ness|ment|er|or|s|es)$/.test(w.slice(o.length));
+    if (simple || simpleRev || [..._vrKs(ix, o)].some(k => mine.has(k))) out.push(o);
+  });
+  return out.sort((a, b) => a.length - b.length || a.localeCompare(b));
+}
+function _vrAnt(ix, w) {
+  const D = ix.D, out = [];
+  const add = o => { if (o && o !== w && D.has(o) && out.indexOf(o) < 0) out.push(o); };
+  ['un', 'non'].forEach(p => { add(D.has(p + w) ? p + w : null); if (w.startsWith(p) && w.length > p.length + 3) add(w.slice(p.length)); });
+  ['in', 'im', 'il', 'ir', 'dis'].forEach(p => {
+    if (D.has(p + w) && _vrNegMeaning(D.get(p + w))) add(p + w);
+    if (w.startsWith(p) && D.has(w.slice(p.length)) && _vrNegMeaning(D.get(w))) add(w.slice(p.length));
+  });
+  if (w.endsWith('ful')) add(w.slice(0, -3) + 'less');
+  if (w.endsWith('less')) add(w.slice(0, -4) + 'ful');
+  // 그 반대말과 같은 뜻을 가진 단어도(unwilling → reluctant)
+  const base = out.slice();
+  base.forEach(a => _vrSyn(ix, a, 4).forEach(s => { if (s !== w && !_vrSyn(ix, w, 30).includes(s)) add(s); }));
+  return out.slice(0, 10);
+}
+// 미리 계산해 둔 관련어 파일(dict-rel.json, 단어 엑셀의 유의어·반의어·파생어·혼동어휘 칸에서 만듦)
+const VOCAB_REL_URL = 'dict-rel.json?v=20261124a';
+let _vocabRelP = null;
+function vocabRelLoad() {
+  if (!_vocabRelP) {
+    _vocabRelP = fetch(VOCAB_REL_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(o => new Map(Object.entries(o)))
+      .catch(() => null);   // 파일이 없으면 브라우저에서 계산
+  }
+  return _vocabRelP;
+}
+// → { word, syn:[], ant:[], der:[], cf:[] } (단어는 사전 표제어 기준. 변형이면 원형으로)
+async function vocabRelated(raw) {
+  const [ix, REL] = await Promise.all([vocabRelIndex(), vocabRelLoad()]);
+  let w = String(raw || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!w) return { word: w, syn: [], ant: [], der: [], cf: [] };
+  if (!ix.D.has(w)) {
+    const base = vocabLemmaCandidates(w).find(b => ix.D.has(b));
+    if (base) w = base;
+  }
+  if (!ix.D.has(w)) return { word: w, syn: [], ant: [], der: [], cf: [], missing: true };
+  if (REL) {
+    const r = REL.get(w) || {};
+    const ok = x => ix.D.has(x);
+    return { word: w, syn: (r.s || []).filter(ok), ant: (r.a || []).filter(ok), der: (r.d || []).filter(ok), cf: (r.c || []).filter(ok) };
+  }
+  const der = _vrDer(ix, w);
+  const ant = _vrAnt(ix, w).filter(x => der.indexOf(x) < 0 || /^(un|non|in|im|il|ir|dis)/.test(x));
+  const syn = _vrSyn(ix, w, 14).filter(x => der.indexOf(x) < 0 && ant.indexOf(x) < 0).slice(0, 10);
+  return { word: w, syn, ant, der: der.filter(x => ant.indexOf(x) < 0).slice(0, 12), cf: [] };
+}
+function vocabFirstMeaning(w) {
+  return vocabRelIndex().then(ix => ((ix.D.get(w) || [])[0] || ''));
+}
+// 관련어 칩 HTML (단어 + 첫 뜻)
+function _vrChipsHtml(ix, list, cls) {
+  return list.map(w => {
+    const m = (ix.D.get(w) || [])[0] || '';
+    return `<button type="button" class="vr-chip ${cls || ''}" data-vr="${escapeHTML(w).replace(/"/g, '&quot;')}" title="${escapeHTML((ix.D.get(w) || []).join(', ')).replace(/"/g, '&quot;')}"><b>${escapeHTML(w)}</b>${m ? `<span>${escapeHTML(m)}</span>` : ''}</button>`;
+  }).join('');
+}
+
 function fetchMeaningSuggestions(word) {
   const key = word.toLowerCase();
   if (MEANING_SUGGEST_CACHE.has(key)) return MEANING_SUGGEST_CACHE.get(key);
@@ -755,6 +912,7 @@ function _ensureWordPopover() {
     </div>
     <div class="wp-status"></div>
     <div class="wp-chips"></div>
+    <div class="wp-rel"></div>
     <input type="text" class="wp-meaning" placeholder="뜻 (추천 뜻을 누르거나 직접 입력)" autocomplete="off">
     <div class="wp-actions">
       <button type="button" class="wp-btn wp-dict">사전</button>
@@ -775,6 +933,15 @@ function _ensureWordPopover() {
     editTimer = setTimeout(() => _fillWordPopover(e.target.value.trim()), 400);
   });
   pop.querySelector('.wp-status').addEventListener('click', _wordPopNoteClick);
+  // 관련어(유의어·반의어·파생어) 칩: 누르면 그 단어로 카드가 바뀝니다.
+  pop.querySelector('.wp-rel').addEventListener('click', e => {
+    const c = e.target.closest('[data-vr]');
+    if (!c) return;
+    const prev = pop.querySelector('.wp-word').value.trim();
+    pop.querySelector('.wp-word').value = c.dataset.vr;
+    _fillWordPopover(c.dataset.vr, {});
+    pop._relBack = prev;
+  });
   pop.querySelector('.wp-chips').addEventListener('click', e => {
     const chip = e.target.closest('.wp-chip');
     if (!chip) return;
@@ -798,6 +965,7 @@ function _fillWordPopover(word, opts) {
   const wordEl = pop.querySelector('.wp-word');
   pop.querySelector('.wp-meaning').value = '';
   chips.innerHTML = '';
+  pop.querySelector('.wp-rel').innerHTML = '';
   const seq = pop._seq = (pop._seq || 0) + 1;
   if (!word) { status.innerHTML = '<span class="wp-sub">영어 단어를 입력하면 추천 뜻이 나옵니다.</span>'; return; }
   const typed = String(vocabCorrectTypo(word) || word);
@@ -829,6 +997,25 @@ function _wordPopShow(pop, r, o) {
   chips.innerHTML = r.meanings.map(m => `<button type="button" class="wp-chip" data-m="${escapeHTML(m).replace(/"/g, '&quot;')}">${escapeHTML(m)}</button>`).join('');
   pop._last = r;
   _positionWordPopover();
+  _wordPopRelated(pop, r.word);
+}
+// 카드 아래쪽: 학원 사전 기준 유의어·반의어·파생어 (없는 칸은 숨김)
+function _wordPopRelated(pop, word) {
+  const box = pop.querySelector('.wp-rel');
+  const seq = pop._seq;
+  box.innerHTML = '';
+  if (!word) return;
+  Promise.all([vocabRelated(word), vocabRelIndex()]).then(([rel, ix]) => {
+    if (seq !== pop._seq) return;
+    const back = pop._relBack && pop._relBack.toLowerCase() !== String(word).toLowerCase() ? pop._relBack : '';
+    const rows = [['유의어', rel.syn, 'syn'], ['반의어', rel.ant, 'ant'], ['파생어', rel.der, 'der'], ['혼동', rel.cf || [], 'cf']]
+      .filter(x => x[1].length)
+      .map(([label, list, cls]) => `<div class="vr-line"><span class="vr-label ${cls}">${label}</span><div class="vr-chips">${_vrChipsHtml(ix, list.slice(0, 6), cls)}</div></div>`);
+    if (!rows.length && !back) return;
+    box.innerHTML = rows.join('') + (back ? `<div class="vr-line"><button type="button" class="vr-chip vr-back" data-vr="${escapeHTML(back).replace(/"/g, '&quot;')}">← ${escapeHTML(back)}(으)로 돌아가기</button></div>` : '');
+    if (back) pop._relBack = '';
+    _positionWordPopover();
+  }).catch(() => {});
 }
 // 안내 줄의 버튼: 원형/그대로/분사형 사이를 바꿉니다.
 function _wordPopNoteClick(e) {
@@ -1044,6 +1231,7 @@ function _vpDetailHtml() {
         <button type="button" class="vw-btn" data-act="dict">사전</button>
         <button type="button" class="vw-btn" data-act="syn">유의어</button>
         <button type="button" class="vw-btn" data-act="ant">반의어</button>
+        <button type="button" class="vw-btn" data-act="der">파생어</button>
         <button type="button" class="vw-btn" data-act="trg">혼동어휘</button>
         <button type="button" class="vw-btn vw-btn-edit" data-act="edit">수정</button>
         ${_vpCanToggleMemo() ? '<button type="button" class="vw-btn vw-btn-del" data-act="delete">삭제</button>' : ''}
@@ -1134,16 +1322,45 @@ function _vpSetMemorized(row, checked) {
     .setWordMemorized(targetUser, item.word, checked);
 }
 
+let _vpCfLoading = false;
 function _vpHandleAction(row, btn) {
   const word = row.dataset.word;
   const related = row.querySelector('.vw-related');   // 유의어·반의어·혼동어휘 결과
   const editBox = row.querySelector('.vw-editbox');   // 수정 입력칸 (늦게 오는 검색 결과가 덮어쓰지 않도록 분리)
   const act = btn.dataset.act;
   if (act === 'dict') { openDictionary(word); return; }
-  if (act === 'syn' || act === 'ant' || act === 'trg') {
+  if (act === 'syn' || act === 'ant' || act === 'der' || act === 'trg') {
+    // 학원 사전(해커스 보카) 기준. 없으면 유의어·반의어는 인터넷 사전에서 찾을 수 있게 버튼을 줍니다.
+    related.style.display = 'block';
+    row.querySelectorAll('.vw-actions .vw-btn[data-act]').forEach(b => b.classList.toggle('on', b === btn));
+    related.innerHTML = '<span class="vr-wait">찾는 중...</span>';
+    Promise.all([vocabRelated(word), vocabRelIndex()]).then(([rel, ix]) => {
+      let list = (act === 'trg' ? rel.cf : rel[act]) || [];
+      // 혼동어휘: 학원 사전에서 찾은 것 + 선생님이 시트에 정리한 혼동어휘 묶음
+      if (act === 'trg' && Array.isArray(CONFUSING_WORDS_DB)) {
+        const lw = String(word).toLowerCase();
+        const g = CONFUSING_WORDS_DB.find(gr => gr.some(x => String(x).toLowerCase() === lw || String(x).toLowerCase() === rel.word));
+        if (g) list = Array.from(new Set(g.map(x => String(x).toLowerCase()).filter(x => x !== lw && x !== rel.word).concat(list)));
+      }
+      const label = { syn: '유의어', ant: '반의어', der: '파생어', trg: '혼동어휘' }[act];
+      const head = rel.word !== String(word).toLowerCase() ? `<div class="vr-note">원형 <b>${escapeHTML(rel.word)}</b> 기준</div>` : '';
+      if (list.length) {
+        related.innerHTML = head + `<div class="vr-chips">${_vrChipsHtml(ix, list, act)}</div><div class="vr-note">학원 단어장(해커스 보카) 기준 · 누르면 단어 카드로 열려 바로 저장할 수 있습니다.</div>`;
+      } else {
+        related.innerHTML = head + `<div class="vr-note">학원 단어장(해커스 보카)에서 ${label}를 찾지 못했습니다.${act !== 'der' ? ' <button type="button" class="vr-web" data-act="web-' + act + '">인터넷 사전에서 찾기</button>' : ''}</div>`;
+      }
+      if (act === 'trg' && (!CONFUSING_WORDS_DB || !CONFUSING_WORDS_DB.length) && typeof hasGsRun === 'function' && hasGsRun() && !_vpCfLoading) {
+        // 시트의 혼동어휘 묶음은 처음 한 번만 받아 두고 다시 그립니다.
+        _vpCfLoading = true;
+        google.script.run.withSuccessHandler(data => { CONFUSING_WORDS_DB = data || []; if (CONFUSING_WORDS_DB.length) _vpHandleAction(row, btn); }).getConfusingWordsFromSheet();
+      }
+    });
+    return;
+  }
+  if (act === 'web-syn' || act === 'web-ant' || act === 'web-trg') {
     related.style.display = 'flex';
     // 고른 연관어는 단어 카드로 열어 바로 저장할 수 있게
-    fetchDatamuse(act, true, { word: word, resultEl: related, onPick: (w, chip) => showWordPopover(w, chip) });
+    fetchDatamuse(act.slice(4), true, { word: word, resultEl: related, onPick: (w, chip) => showWordPopover(w, chip) });
     return;
   }
   if (act === 'edit') {
@@ -1190,6 +1407,8 @@ function _vpBindOnce() {
     if (more) { VP.shown += VP_PAGE; renderVocabPage(true); return; }
     const row = e.target.closest('.vw-row');
     if (!row || e.target.closest('.vw-check')) return;
+    const vr = e.target.closest('[data-vr]');
+    if (vr) { showWordPopover(vr.dataset.vr, vr); return; }   // 유의어·반의어·파생어 칩 → 단어 카드
     const btn = e.target.closest('button[data-act]');
     if (btn) { _vpHandleAction(row, btn); return; }
     if (e.target.closest('.vw-detail')) return;
