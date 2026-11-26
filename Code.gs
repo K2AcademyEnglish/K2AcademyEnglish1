@@ -37,6 +37,8 @@ ${safe ? `<script>
 // (관리자 전용 함수는 여기와 아래 ADMIN_API_ 두 곳 모두에 넣어야 합니다. 한쪽만 넣으면 화면에서 거절되거나 누구나 부를 수 있게 됩니다.)
 const PUBLIC_API_ = new Set([
   'doLogin', 'getManagedStudents',
+  // 서버 깨우기 (가장 가벼운 요청)
+  'ping',
   // 단어장
   'getVocabulary', 'addWordToFormAndSheet', 'editWord', 'deleteWord', 'setWordMemorized', 'setWordsMemorized',
   'getTypoCorrections', 'getWordTranslation', 'getDailyLogs', 'getConfusingWordsFromSheet',
@@ -99,7 +101,7 @@ function _guardDirect_() {
 const PERF_KEY = 'PERF_LOG_V1', PERF_MAX = 400;
 let _PERF_T0_ = 0, _PERF_FUNC_ = '';
 function _perfLog_(func, ms, ok) {
-  if (func === 'adminGetPerf') return;
+  if (func === 'adminGetPerf' || func === 'ping') return;
   try {
     const cache = CacheService.getScriptCache();
     let list = [];
@@ -125,6 +127,9 @@ function adminGetPerf(auth, clear) {
   }).sort((a, b) => b.avg * b.count - a.avg * a.count);
   return { summary: summary, recent: list.slice(-60).reverse().map(r => ({ time: r[0], func: r[1], ms: r[2], ok: !!r[3] })), total: list.length };
 }
+
+// [속도] 화면이 서버를 깨워 두려고 보내는 요청. 아무것도 읽지 않고 바로 답합니다.
+function ping() { return 1; }
 
 function doPost(e) {
   _VIA_POST_ = true;

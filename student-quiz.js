@@ -1159,12 +1159,54 @@ function loadOMRData(id, qids) {
   }
   return fresh();
 }
+// [온라인 풀기] 미리 받아 둔 OMR 데이터 + 문항 본문이 모두 있으면 서버를 기다리지 않고 바로 엽니다.
+// (본문이 하나라도 없거나 5분이 지났으면 예전처럼 서버에서 받습니다)
+function loadOnlineData(id, qids) {
+  const fresh = () => gsCall('loadRetryData', [CURRENT_USER, qids, id, null]);
+  const hit = OMR_PREFETCH.get(id);
+  const ok = hit && CURRENT_USER && hit.uid === CURRENT_USER.id && Date.now() - hit.at < OMR_PREFETCH_TTL &&
+             (qids || []).every(_fullDetailFresh);
+  if (!ok) return fresh();
+  return hit.promise.then(res => {
+    const qs = ((res && res.qs) || []).map(q => { const c = Object.assign({}, q); _applyFullDetail(c); return c; });
+    if (!qs.length || qs.some(q => q._omrLite)) return fresh();
+    return { qs: qs, history: res.history };
+  }).catch(fresh);
+}
 let OMR_PREFETCH_TIMER = null;
+let OMR_PREFETCH_RUN = 0;
+const OMR_PREFETCH_TOP = 3;   // 위에서부터 몇 개 과제를 미리 받을지
+// 위에서부터 미완료 과제 3개를 '하나씩 차례로' 받아 둡니다. (동시에 보내지 않아 서버 부담이 적음)
+// 맨 위 과제는 문항 본문(지문·보기·해설)까지 받아 두어 [온라인]도 바로 열립니다.
 function schedulePrefetchFirstActive(list) {
   if (OMR_PREFETCH_TIMER) clearTimeout(OMR_PREFETCH_TIMER);
-  const first = (list || []).find(a => a && a.id);
-  if (!first) return;
-  OMR_PREFETCH_TIMER = setTimeout(() => { OMR_PREFETCH_TIMER = null; prefetchOMR(first.id); }, 700);
+  const ids = (list || []).filter(a => a && a.id).slice(0, OMR_PREFETCH_TOP).map(a => a.id);
+  if (!ids.length) return;
+  const run = ++OMR_PREFETCH_RUN;
+  OMR_PREFETCH_TIMER = setTimeout(() => {
+    OMR_PREFETCH_TIMER = null;
+    let chain = Promise.resolve();
+    ids.forEach((id, i) => {
+      chain = chain.then(() => {
+        if (run !== OMR_PREFETCH_RUN || !CURRENT_USER) return;
+        prefetchOMR(id);
+        const hit = OMR_PREFETCH.get(id);
+        const wait = hit ? hit.promise.catch(() => null) : Promise.resolve(null);
+        return wait.then(res => {
+          if (i === 0 && res && run === OMR_PREFETCH_RUN) prefetchQuestionBodies(_asgnQids(id));
+        });
+      });
+    });
+  }, 700);
+}
+// 문항 본문을 미리 받아 OMR_FULL_DETAIL에 넣어 둡니다(5분 동안만 사용 → 문제 수정이 금방 반영됨).
+function prefetchQuestionBodies(qids) {
+  if (!qids || !qids.length || !hasGsRun()) return;
+  const need = [...new Set(qids)].filter(id => !_fullDetailFresh(id));
+  if (!need.length) return;
+  gsCall('getQuestionsByQids', [need]).then(rows => {
+    (rows || []).forEach(full => { if (full && full.qid) _setFullDetail(full); });
+  }).catch(() => {});
 }
 
 function loadMyAssignments(){ return runAfterAttemptsSaved(_loadMyAssignmentsNow); }
@@ -1295,7 +1337,7 @@ function _startAssignmentNow(id, mode){
 
   const request = (mode === 'omr')
     ? loadOMRData(id, qids)
-    : gsCall('loadRetryData', [CURRENT_USER, qids, id, null]);
+    : loadOnlineData(id, qids);
   request
     .then(res => {
         if(loadEl) loadEl.classList.remove('active');
@@ -1516,8 +1558,17 @@ function bindOnlinePaper(card, box, idx) {
 const OMR_DETAIL_PENDING = new WeakMap();
 // [속도] 한 번 받은 문항 본문(지문·보기·해설)은 이 화면을 닫기 전까지 기억합니다. (문항 ID 기준)
 const OMR_FULL_DETAIL = new Map();
+const OMR_FULL_AT = new Map();              // 문항ID → 받은 시각
+const OMR_FULL_TTL = 5 * 60 * 1000;         // 5분이 지난 본문은 쓰지 않고 새로 받음 (실시간 수정 반영)
+function _setFullDetail(full) { OMR_FULL_DETAIL.set(full.qid, full); OMR_FULL_AT.set(full.qid, Date.now()); }
+function _fullDetailFresh(qid) {
+  const at = OMR_FULL_AT.get(qid);
+  if (at && Date.now() - at < OMR_FULL_TTL) return true;
+  OMR_FULL_DETAIL.delete(qid); OMR_FULL_AT.delete(qid);
+  return false;
+}
 function _applyFullDetail(q) {
-  const full = q && q._omrLite && OMR_FULL_DETAIL.get(q.qid);
+  const full = q && q._omrLite && _fullDetailFresh(q.qid) && OMR_FULL_DETAIL.get(q.qid);
   if (!full) return false;
   Object.assign(q, full);
   delete q._omrLite;
@@ -1529,7 +1580,7 @@ function prefetchOMRDetails(qs) {
   if (!need.length || !hasGsRun()) return;
   const ids = [...new Set(need.map(q => q.qid))];
   gsCall('getQuestionsByQids', [ids]).then(rows => {
-    (rows || []).forEach(full => { if (full && full.qid) OMR_FULL_DETAIL.set(full.qid, full); });
+    (rows || []).forEach(full => { if (full && full.qid) _setFullDetail(full); });
     need.forEach(_applyFullDetail);
   }).catch(() => {});
 }
@@ -1540,7 +1591,7 @@ function ensureOMRQuestionDetail(q) {
     google.script.run.withSuccessHandler(rows => {
       const full = (rows || []).find(item => item.qid === q.qid);
       if (!full) { reject(new Error('문항 정보를 찾을 수 없습니다.')); return; }
-      OMR_FULL_DETAIL.set(full.qid, full);
+      _setFullDetail(full);
       Object.assign(q, full);
       delete q._omrLite;
       resolve(q);

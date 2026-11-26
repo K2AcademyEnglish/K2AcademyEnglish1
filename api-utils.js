@@ -24,7 +24,46 @@ function _ptsKickAfter(func) {
   }, 3000);
 }
 
+/* ===================== [속도] 서버 깨워 두기 =====================
+ * 구글 서버(Apps Script)는 몇 분 동안 요청이 없으면 잠들고, 잠든 뒤 첫 요청은 3~5초 더 걸립니다.
+ * 그래서 아주 가벼운 'ping'을 미리 보내 깨워 둡니다. (데이터를 읽지 않으므로 실시간 수정과 무관)
+ *  - 사이트를 열 때(로그인 화면) 바로 한 번 → 로그인 요청이 빨라짐
+ *  - 다른 탭에 있다가 돌아왔을 때, 오래 가만히 있다가 다시 만질 때
+ *  - 화면을 보고 있고 최근 20분 안에 조작이 있었으면, 4분마다 한 번
+ * 서버 요청이 최근 4분 안에 있었다면 보내지 않습니다.
+ */
+const K2_WARM_GAP = 4 * 60 * 1000;
+const K2_WARM_ACTIVE = 20 * 60 * 1000;
+let _k2LastGsAt = 0;
+let _k2LastActAt = Date.now();
+function k2WarmPing(force) {
+  if (typeof GAS_WEB_APP_URL === 'undefined' || !window._K2_BRIDGE) return;
+  if (!force && Date.now() - _k2LastGsAt < K2_WARM_GAP) return;
+  _k2LastGsAt = Date.now();
+  try {
+    fetch(GAS_WEB_APP_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ func: 'ping', args: [], auth: null }) }).catch(() => {});
+  } catch (e) {}
+}
+function _k2SignedIn() { try { return typeof CURRENT_USER !== 'undefined' && !!CURRENT_USER; } catch (e) { return false; } }
+(function k2KeepWarm() {
+  if (typeof document === 'undefined') return;
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) k2WarmPing(false); });
+  const onAct = () => {
+    const idle = Date.now() - _k2LastActAt;
+    _k2LastActAt = Date.now();
+    if (idle > K2_WARM_GAP) k2WarmPing(false);
+  };
+  ['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, onAct, { passive: true, capture: true }));
+  setInterval(() => {
+    if (document.hidden || !_k2SignedIn()) return;
+    if (Date.now() - _k2LastActAt > K2_WARM_ACTIVE) return;   // 오래 자리를 비우면 쉼
+    k2WarmPing(false);
+  }, 60 * 1000);
+})();
+
 if (typeof google === 'undefined' || !google.script) {
+  window._K2_BRIDGE = true;
   function createGasRunner(successHandler, failureHandler) {
     return new Proxy({}, {
       get: function(target, prop) {
@@ -36,6 +75,7 @@ if (typeof google === 'undefined' || !google.script) {
         }
         return function(...args) {
           // 구글 스크립트 doPost로 요청 전송 (CORS 사전 요청 방지를 위해 text/plain 사용)
+          _k2LastGsAt = Date.now();
           fetch(GAS_WEB_APP_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -695,3 +735,6 @@ function parseQrHash(hash) {
   if (!m) return null;
   return { key: m[1], exp: m[2], expired: _qrYmd(new Date()) > m[2] };
 }
+
+// 사이트를 열자마자 서버를 깨워 둡니다(로그인 화면에서 아이디를 입력하는 동안 준비됨).
+setTimeout(() => k2WarmPing(true), 0);
