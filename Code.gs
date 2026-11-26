@@ -2879,30 +2879,41 @@ function _studentQuestionStats_(studentIdInput, days) {
     }
   });
 
-  const typeStats = new Map();
-  attemptMap.forEach(val => {
-    if (!typeStats.has(val.type)) typeStats.set(val.type, { type: val.type, total: 0, correct: 0 });
-    const st = typeStats.get(val.type);
-    st.total += 1;
-    if (val.isCorrect) st.correct += 1;
-  });
-  const stats = Array.from(typeStats.values()).map(r => {
-    r.rate = r.total > 0 ? Math.round((r.correct / r.total) * 100) : 0;
-    r.wrong = r.total - r.correct;
-    return r;
-  }).sort((a, b) => (a.rate !== b.rate) ? a.rate - b.rate : b.total - a.total).slice(0, 10);
+  // 유형별 정답률. 같은 자료로 최근 7일 것도 함께 계산합니다(과제출제의 7일/30일 전환용 — 서버를 한 번만 부르도록).
+  const since7 = Date.now() - 7 * 24 * 3600 * 1000;
+  const typeStatsOf = (only7) => {
+    const typeStats = new Map();
+    attemptMap.forEach(val => {
+      if (only7 && !(val.ts instanceof Date && val.ts.getTime() >= since7)) return;
+      if (!typeStats.has(val.type)) typeStats.set(val.type, { type: val.type, total: 0, correct: 0 });
+      const st = typeStats.get(val.type);
+      st.total += 1;
+      if (val.isCorrect) st.correct += 1;
+    });
+    return Array.from(typeStats.values()).map(r => {
+      r.rate = r.total > 0 ? Math.round((r.correct / r.total) * 100) : 0;
+      r.wrong = r.total - r.correct;
+      return r;
+    }).sort((a, b) => (a.rate !== b.rate) ? a.rate - b.rate : b.total - a.total).slice(0, 10);
+  };
+  const stats = typeStatsOf(false);
+  const stats7 = typeStatsOf(true);
 
-  // 기간 안 문항별 첫 시도 결과 [시도 수, 정답 수] → 브라우저에서 난이도별 정답률 계산용
+  // 기간 안 문항별 첫 시도 결과 [시도 수, 정답 수, 7일 시도 수, 7일 정답 수] → 브라우저에서 난이도별·문항별 정답률 계산용
   const qrecent = {};
   attemptMap.forEach(val => {
     if (!val.qid) return;
-    const q = qrecent[val.qid] || (qrecent[val.qid] = [0, 0]);
+    const q = qrecent[val.qid] || (qrecent[val.qid] = [0, 0, 0, 0]);
     q[0] += 1;
     if (val.isCorrect) q[1] += 1;
+    if (val.ts instanceof Date && val.ts.getTime() >= since7) {
+      q[2] += 1;
+      if (val.isCorrect) q[3] += 1;
+    }
   });
 
   const asg = _studentAssignInfo_(studentIdInput);
-  return { qstats: qstats, stats: stats, qrecent: qrecent, acounts: asg.counts, alast: asg.last };
+  return { qstats: qstats, stats: stats, stats7: stats7, qrecent: qrecent, acounts: asg.counts, alast: asg.last };
 }
 
 // 학생에게 배부된 횟수와 마지막 배부 시각 (문항 QID별).
@@ -2936,7 +2947,7 @@ function _studentAssignInfo_(studentIdInput) {
 function getStudentQuestionStats(studentIdInput, days) {
   _guardDirect_();
   const r = _studentQuestionStats_(studentIdInput, Number(days) || 0);
-  return { qstats: r.qstats, acounts: r.acounts, alast: r.alast, stats: r.stats, qrecent: r.qrecent };
+  return { qstats: r.qstats, acounts: r.acounts, alast: r.alast, stats: r.stats, stats7: r.stats7, qrecent: r.qrecent };
 }
 
 // 주간평가 '학생 데이터 로드': 취약 유형 Top10 + 문항별 풀이 상태 (문항 목록은 브라우저 저장본 사용)
@@ -3292,7 +3303,7 @@ function cancelPointExchange(user, requestId) {
  */
 const TAROT_ON = true;            // false로 바꾸면 학생 화면에서 타로 버튼이 사라집니다
 const TAROT_COST = 10;            // 한 번 뽑는 데 드는 포인트
-const TAROT_DAILY = 1;            // 하루에 뽑을 수 있는 횟수
+const TAROT_DAILY = 3;            // 하루에 뽑을 수 있는 횟수
 const TAROT_TOPICS = ['today', 'study', 'friend', 'love', 'money'];   // 'love'(연애운)를 빼면 그 주제가 사라집니다
 const TAROT_CARD_COUNT = 22;      // 메이저 아르카나 22장 (tarot.js와 같아야 함)
 const TAROT_COLOR_COUNT = 10;     // 행운의 색 개수 (tarot.js와 같아야 함)
@@ -3332,7 +3343,7 @@ function drawTarot(user, topic) {
     const sh = _npSheet_(NP_POINT_SHEET, NP_POINT_HEADERS);
     const rows = _npRows_(sh, NP_POINT_HEADERS.length);
     const used = _tarotToday_(rows, me.id);
-    if (used.length >= TAROT_DAILY) throw new Error('오늘은 이미 타로를 봤어요. 내일 다시 만나요!');
+    if (used.length >= TAROT_DAILY) throw new Error(TAROT_DAILY > 1 ? '오늘 ' + TAROT_DAILY + '번 모두 봤어요. 내일 다시 만나요!' : '오늘은 이미 타로를 봤어요. 내일 다시 만나요!');
     const st = _pointState_();
     const balance = st.balances[me.id] || 0, pending = st.pending[me.id] || 0;
     if (balance - pending < TAROT_COST) throw new Error('포인트가 부족해요. (필요 ' + TAROT_COST + 'pt · 사용 가능 ' + Math.max(0, balance - pending) + 'pt)');

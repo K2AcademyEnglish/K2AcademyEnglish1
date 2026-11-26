@@ -165,7 +165,7 @@
     throw new Error(m);
   });
 
-  const S = { status: null, topic: 'today', busy: false };
+  const S = { status: null, topic: 'today', busy: false, resultIdx: -1 };
 
   /* ---------- 화면 ---------- */
   function ensureOverlay() {
@@ -184,8 +184,8 @@
       if (act === 'close') close();
       else if (act === 'topic') { S.topic = arg; render(); }
       else if (act === 'pick') pick(Number(arg), b);
-      else if (act === 'again') { S.result = null; render(); }
-      else if (act === 'show') { S.result = S.status.today[Number(arg)]; render(); }
+      else if (act === 'again') { S.result = null; S.resultIdx = -1; render(); }
+      else if (act === 'show') { S.resultIdx = Number(arg); S.result = S.status.today[S.resultIdx]; render(); }
     });
     document.body.appendChild(o);
     return o;
@@ -201,7 +201,8 @@
     call('getTarotStatus', [me().id]).then(st => {
       S.status = st;
       if (st.topics.indexOf(S.topic) === -1) S.topic = st.topics[0];
-      if (!st.left && st.today.length) S.result = st.today[st.today.length - 1];
+      // 오늘 횟수를 다 썼으면 마지막으로 뽑은 카드를 바로 보여 줌
+      if (!st.left && st.today.length) { S.resultIdx = st.today.length - 1; S.result = st.today[S.resultIdx]; }
       render();
     }).catch(e => { box().innerHTML = `<div class="tr-loading">😢 ${esc(e.message)}</div><div class="tr-foot"><button class="tr-btn" data-tr="close">닫기</button></div>`; });
   }
@@ -255,20 +256,26 @@
   function render() {
     const st = S.status;
     if (!st) return;
+    const used = st.today.length;
+    // 오늘 남은 횟수: ● 쓴 것 · ○ 남은 것
+    const pips = Array.from({ length: st.daily }, (_, i) => `<i class="${i < used ? 'used' : ''}"></i>`).join('');
     const head = `<div class="tr-head"><div><b>🔮 오늘의 타로</b><small>한 번 ${st.cost}pt · 하루 ${st.daily}번</small></div>
+        <div class="tr-left" title="오늘 ${used}번 봤어요">${st.daily > 1 ? `<span class="tr-pips">${pips}</span>` : ''}<span>남은 횟수 <b>${st.left}</b>/${st.daily}</span></div>
         <div class="tr-pt">내 포인트 <b>${Number(st.points.balance - st.points.pending).toLocaleString()}</b>pt</div>
         <button class="tr-x" data-tr="close" aria-label="닫기">×</button></div>`;
     if (S.result) { box().innerHTML = head + resultHtml(S.result); return; }
     if (!st.on) { box().innerHTML = head + '<div class="tr-loading">지금은 타로를 볼 수 없어요.</div>'; return; }
     if (!st.left) {
-      box().innerHTML = head + `<div class="tr-loading">오늘은 이미 타로를 봤어요. 내일 다시 만나요! 🌙</div>
-        <div class="tr-foot">${st.today.map((t, i) => `<button class="tr-btn" data-tr="show:${i}">오늘 뽑은 카드 보기</button>`).join('')}<button class="tr-btn" data-tr="close">닫기</button></div>`;
+      box().innerHTML = head + `<div class="tr-loading">오늘 ${st.daily}번 모두 봤어요. 내일 다시 만나요! 🌙</div>
+        ${todayStrip(st, -1)}
+        <div class="tr-foot"><button class="tr-btn" data-tr="close">닫기</button></div>`;
       return;
     }
     const enough = (st.points.balance - st.points.pending) >= st.cost;
-    box().innerHTML = head + `
-      <div class="tr-step">① 어떤 운세를 볼까요?</div>
-      <div class="tr-topics">${st.topics.map(k => `<button class="tr-chip ${S.topic === k ? 'on' : ''}" data-tr="topic:${k}">${TOPICS[k].icon} ${TOPICS[k].label}</button>`).join('')}</div>
+    const seen = new Set(st.today.map(t => t.topic));
+    box().innerHTML = head + todayStrip(st, -1) + `
+      <div class="tr-step">① 어떤 운세를 볼까요?${used ? ` <small>(${used + 1}번째 카드)</small>` : ''}</div>
+      <div class="tr-topics">${st.topics.map(k => `<button class="tr-chip ${S.topic === k ? 'on' : ''}" data-tr="topic:${k}" title="${seen.has(k) ? '오늘 이미 본 주제예요' : ''}">${TOPICS[k].icon} ${TOPICS[k].label}${seen.has(k) ? ' <span class="tr-seen">✓</span>' : ''}</button>`).join('')}</div>
       <div class="tr-step">② 마음이 가는 카드를 한 장 골라 주세요</div>
       <div class="tr-deck">${[0, 1, 2, 3, 4].map(i => `<button class="tr-card" data-tr="pick:${i}" ${enough ? '' : 'disabled'} style="--r:${(i - 2) * 6}deg"><div class="tr-back"><span>✦</span></div></button>`).join('')}</div>
       ${enough ? '' : `<div class="tr-warn">포인트가 부족해요. (${st.cost}pt 필요)</div>`}
@@ -294,7 +301,25 @@
         </div>
       </div>
       <div class="tr-note">재미로 보는 운세예요. 오늘도 화이팅! 💪</div>
-      <div class="tr-foot"><button class="tr-btn primary" data-tr="close">확인</button></div>`;
+      ${S.status && S.status.today.length > 1 ? todayStrip(S.status, S.resultIdx) : ''}
+      <div class="tr-foot">${moreBtn()}<button class="tr-btn primary" data-tr="close">확인</button></div>`;
+  }
+  // [한 번 더 뽑기] 버튼 (남은 횟수와 포인트가 있을 때만)
+  function moreBtn() {
+    const st = S.status;
+    if (!st || !st.left) return '';
+    const enough = (st.points.balance - st.points.pending) >= st.cost;
+    return `<button class="tr-btn" data-tr="again" ${enough ? '' : 'disabled title="포인트가 부족해요"'}>🔮 한 번 더 뽑기 <small>(${st.left}번 남음 · ${st.cost}pt)</small></button>`;
+  }
+  // 오늘 뽑은 카드들(작은 카드). 누르면 그 결과를 다시 봅니다.
+  function todayStrip(st, cur) {
+    if (!st.today.length) return '';
+    return `<div class="tr-today"><div class="tr-today-title">오늘 뽑은 카드</div><div class="tr-today-list">${st.today.map((r, i) => {
+      const c = CARDS[r.card] || CARDS[0], t = TOPICS[r.topic] || TOPICS.today;
+      return `<button class="tr-mini ${i === cur ? 'on' : ''}" data-tr="show:${i}" aria-label="${i + 1}번째 카드 ${esc(t.label)} ${esc(c[1])} 다시 보기">
+          <span class="tr-mini-n">${i + 1}</span><span class="tr-mini-art">${c[3]}</span>
+          <span class="tr-mini-txt"><b>${esc(c[1])}</b><small>${t.icon} ${esc(t.label)}</small></span></button>`;
+    }).join('')}</div></div>`;
   }
 
   function pick(i, btn) {
@@ -310,6 +335,7 @@
         .then(res => {
         S.busy = false;
         st.points = res.points; st.left = res.left; st.today.push(res.result);
+        S.resultIdx = st.today.length - 1;
         S.result = res.result;
         render();
         if (window.NP && typeof NP.refresh === 'function') NP.refresh().catch(() => {});
@@ -359,6 +385,35 @@
       #tarotOverlay.tr-overlay .tr-box .tr-loading { text-align: center; padding: 36px 8px; font-size: 15px; color: #e0e7ff; }
       #tarotOverlay.tr-overlay .tr-box .tr-foot { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
       #tarotOverlay.tr-overlay .tr-box .tr-btn { border: 1px solid #a5b4fc !important; background: transparent !important; color: #e0e7ff !important; border-radius: 10px !important; padding: 9px 18px !important; font-weight: 700; font-size: 14px !important; cursor: pointer; }
+      #tarotOverlay.tr-overlay .tr-box .tr-left { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11.5px; color: #c7d2fe; white-space: nowrap; }
+      #tarotOverlay.tr-overlay .tr-box .tr-left b { font-size: 13px; color: #fde68a; }
+      #tarotOverlay.tr-overlay .tr-box .tr-pips { display: inline-flex; gap: 4px; }
+      #tarotOverlay.tr-overlay .tr-box .tr-pips i { width: 10px; height: 10px; border-radius: 50%; background: #fde68a; box-shadow: 0 0 6px rgba(253,230,138,.7); }
+      #tarotOverlay.tr-overlay .tr-box .tr-pips i.used { background: rgba(255,255,255,.18); box-shadow: none; }
+      #tarotOverlay.tr-overlay .tr-box .tr-step small { font-size: 12px; color: #a5b4fc; font-weight: 400; }
+      #tarotOverlay.tr-overlay .tr-box .tr-seen { color: #86efac; font-size: 12px; }
+      #tarotOverlay.tr-overlay .tr-box .tr-chip.on .tr-seen { color: #15803d; }
+      #tarotOverlay.tr-overlay .tr-box .tr-today { margin: 8px 0 4px; padding: 10px; border-radius: 12px; background: rgba(255,255,255,.06); }
+      #tarotOverlay.tr-overlay .tr-box .tr-today-title { font-size: 12px; color: #c7d2fe; margin-bottom: 6px; }
+      #tarotOverlay.tr-overlay .tr-box .tr-today-list { display: flex; gap: 6px; flex-wrap: wrap; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini { display: flex !important; align-items: center; gap: 6px; flex: 1 1 140px !important; min-width: 0 !important; padding: 6px 8px !important; border: 1px solid rgba(199,210,254,.35) !important; border-radius: 10px !important; background: rgba(30,27,75,.6) !important; color: #e0e7ff !important; cursor: pointer; text-align: left; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini.on { border-color: #fde68a !important; background: rgba(253,230,138,.14) !important; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini-n { flex: 0 0 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.15); font-size: 11px !important; display: flex; align-items: center; justify-content: center; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini-art { font-size: 20px !important; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini-txt { display: flex; flex-direction: column; min-width: 0; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini-txt b { font-size: 13px !important; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      #tarotOverlay.tr-overlay .tr-box .tr-mini-txt small { font-size: 11px !important; color: #a5b4fc; }
+      #tarotOverlay.tr-overlay .tr-box .tr-foot { flex-wrap: wrap; }
+      #tarotOverlay.tr-overlay .tr-box .tr-btn small { font-size: 11px; font-weight: 400; opacity: .85; }
+      #tarotOverlay.tr-overlay .tr-box .tr-btn:disabled { opacity: .45; cursor: default; }
+      #tarotOverlay.tr-overlay .tr-box .tr-head small { white-space: nowrap; }
+      @media (max-width: 480px) {
+        #tarotOverlay.tr-overlay .tr-box .tr-head { flex-wrap: wrap; row-gap: 6px; }
+        #tarotOverlay.tr-overlay .tr-box .tr-head > div:first-child { order: 1; flex: 1 1 calc(100% - 44px); }
+        #tarotOverlay.tr-overlay .tr-box .tr-x { order: 2; }
+        #tarotOverlay.tr-overlay .tr-box .tr-left { order: 3; flex-direction: row; gap: 6px; }
+        #tarotOverlay.tr-overlay .tr-box .tr-pt { order: 4; margin-left: auto; }
+      }
       #tarotOverlay.tr-overlay .tr-box .tr-btn.primary { background: #fde68a !important; color: #312e81 !important; border-color: #fde68a !important; min-width: 140px !important; }
       #tarotOverlay.tr-overlay .tr-box .tr-result { display: flex; gap: 16px; align-items: flex-start; margin-top: 6px; }
       #tarotOverlay.tr-overlay .tr-box .tr-flip { flex-shrink: 0; animation: trFlip .7s ease-out; }
