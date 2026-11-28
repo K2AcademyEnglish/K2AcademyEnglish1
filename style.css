@@ -2619,3 +2619,36 @@ html body #wordPopover.word-popover.no-print button.wp-link,
 .vw-actions .vw-btn.on { border-color: #2b6cb0; background: #eff6ff; color: #1e40af; }
 .vr-label.cf { background: #fef3c7; color: #92400e; }
 .vr-chip.cf b, .vr-chip.trg b { color: #92400e; }
+
+/* ===================== 앱 설치 버튼 · 안내 (pwa.js) ===================== */
+.k2-install-btn[hidden], .k2-install-bar[hidden] { display: none !important; }
+html body #startPage button.k2-install-btn.k2-install-btn {
+  display: block; width: 100% !important; height: auto !important; margin: 14px 0 0 !important; padding: 11px 12px !important;
+  background: #eff6ff !important; color: #1d4ed8 !important; border: 1.5px solid #93c5fd !important; border-radius: 10px !important;
+  font-size: 15px !important; font-weight: 700 !important; box-shadow: none !important; line-height: 1.35;
+}
+html body #startPage button.k2-install-btn small { display: block; font-size: 12px; font-weight: 500; color: #3b82f6; margin-top: 2px; }
+html body #studentMainPage .k2-install-bar {
+  display: flex; align-items: center; gap: 8px; margin: 0 0 16px; padding: 10px 10px 10px 14px; text-align: left;
+  background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; font-size: 13.5px; color: #1e3a8a; line-height: 1.4;
+}
+html body #studentMainPage .k2-install-bar span { flex: 1; min-width: 0; }
+html body #studentMainPage .k2-install-bar button.k2-install-btn.k2-install-btn {
+  flex: none; width: auto !important; height: auto !important; margin: 0 !important; padding: 7px 14px !important;
+  background: #2b6cb0 !important; color: #fff !important; border: 0 !important; border-radius: 8px !important; font-size: 13.5px !important; font-weight: 700 !important; box-shadow: none !important;
+}
+html body #studentMainPage .k2-install-bar button.k2-install-x.k2-install-x {
+  flex: none; width: 28px !important; height: 28px !important; min-width: 0 !important; margin: 0 !important; padding: 0 !important;
+  background: transparent !important; color: #64748b !important; border: 0 !important; font-size: 15px !important; box-shadow: none !important;
+}
+#k2InstallGuide { position: fixed; inset: 0; z-index: 100000; display: none; align-items: center; justify-content: center; padding: 20px; background: rgba(15, 23, 42, .5); }
+#k2InstallGuide.open { display: flex; }
+#k2InstallGuide .k2ig-box { width: 100%; max-width: 340px; background: #fff; border-radius: 16px; padding: 22px 20px 16px; box-shadow: 0 12px 32px rgba(0,0,0,.2); text-align: center; color: #111827; }
+#k2InstallGuide .k2ig-ico { font-size: 38px; line-height: 1; }
+#k2InstallGuide h3 { margin: 10px 0 8px; font-size: 18px; }
+#k2InstallGuide p { margin: 8px 0; font-size: 14px; color: #374151; line-height: 1.55; }
+#k2InstallGuide ol { text-align: left; margin: 10px 0; padding-left: 22px; font-size: 14px; line-height: 1.7; color: #1f2937; }
+#k2InstallGuide .k2ig-share { display: inline-block; padding: 0 6px; border: 1px solid #93c5fd; border-radius: 6px; color: #2563eb; }
+#k2InstallGuide button.k2ig-close { width: 100% !important; height: auto !important; margin: 10px 0 0 !important; padding: 11px !important; border: 0 !important; border-radius: 10px !important; background: #2b6cb0 !important; color: #fff !important; font-size: 15px !important; font-weight: 700 !important; }
+/* 앱으로 실행 중: 아이폰 노치·하단 바 영역 여백 */
+html.k2-app body { padding-bottom: env(safe-area-inset-bottom); }

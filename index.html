@@ -9,9 +9,16 @@
   <script defer src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js" crossorigin="anonymous"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
-  <link rel="apple-touch-icon" href="https://i.imgur.com/NVHBqH2.png">
+  <!-- 앱 설치(홈 화면에 추가) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#2b6cb0">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="케이투영어">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
-  <link rel="stylesheet" href="style.css?v=20261124b">
+  <link rel="stylesheet" href="style.css?v=20261128a">
   <link rel="stylesheet" href="print.css?v=20261115e">
   <link rel="stylesheet" href="notice-points.css?v=20261119a">
   <link rel="stylesheet" href="ink.css?v=20261118a">
@@ -90,11 +97,17 @@
     >로그인</button>
 
   <div id="warning">ID를 입력해 주십시오.</div>
+  <button type="button" class="k2-install-btn" hidden>📲 앱으로 설치하기 <small>(주소창 없이 전체 화면)</small></button>
 </div>
 
   <div class="panel" id="studentMainPage" style="text-align: center;">
     <!-- 내 포인트 · 최근 공지 (notice-points.js가 채웁니다) -->
     <div id="npHomeCard" style="display:none;"></div>
+    <div class="k2-install-bar" hidden>
+      <span>📲 홈 화면에 앱으로 설치하면 <b>전체 화면</b>으로 더 편하게 쓸 수 있어요.</span>
+      <button type="button" class="k2-install-btn">설치</button>
+      <button type="button" class="k2-install-x" aria-label="7일 동안 숨기기">✕</button>
+    </div>
     <h2 style="color: #111827; margin-bottom: 24px;">어떤 학습을 시작하시겠습니까?</h2>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
       <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #2b6cb0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('assignment')">
@@ -668,6 +681,7 @@
 
   <script src="qrcode.js?v=20261115e"></script>
   <script src="api-utils.js?v=20261126b"></script>
+  <script src="pwa.js?v=20261128a"></script>
   <script src="notice-points.js?v=20261119a"></script>
   <script src="tarot.js?v=20261126a"></script>
   <script src="vocab.js?v=20261124b"></script>
