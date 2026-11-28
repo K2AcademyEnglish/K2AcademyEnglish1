@@ -8,22 +8,22 @@
   <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
   <script defer src="https://t1.kakaocdn.net/kakao_js_sdk/2.7.2/kakao.min.js" crossorigin="anonymous"></script>
   <script defer src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-  <link rel="icon" href="https://i.imgur.com/NVHBqH2.png" type="image/png">
+  <link rel="icon" href="icons/icon-192.png?v=2" type="image/png">
   <!-- 앱 설치(홈 화면에 추가) -->
-  <link rel="manifest" href="manifest.webmanifest">
-  <meta name="theme-color" content="#2b6cb0">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest?v=2">
+  <meta name="theme-color" content="#003755">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=2">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="케이투영어">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <!-- 파일을 고쳐 올릴 때마다 아래 ?v= 뒤의 값을 바꾸면, 학생 기기에서도 바로 새 파일을 받습니다. -->
-  <link rel="stylesheet" href="style.css?v=20261128a">
+  <link rel="stylesheet" href="style.css?v=20261128c">
   <link rel="stylesheet" href="print.css?v=20261115e">
-  <link rel="stylesheet" href="notice-points.css?v=20261119a">
+  <link rel="stylesheet" href="notice-points.css?v=20261128b">
   <link rel="stylesheet" href="ink.css?v=20261118a">
-  <link rel="stylesheet" href="qbank.css?v=20261120a">
-  <link rel="stylesheet" href="students.css?v=20261117a">
+  <link rel="stylesheet" href="qbank.css?v=20261128b">
+  <link rel="stylesheet" href="students.css?v=20261128b">
 </head>
 
 <body>
@@ -110,7 +110,7 @@
     </div>
     <h2 style="color: #111827; margin-bottom: 24px;">어떤 학습을 시작하시겠습니까?</h2>
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
-      <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #2b6cb0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('assignment')">
+      <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #005c82; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('assignment')">
         <span style="font-size: 32px; line-height: 1;">📁</span><span style="font-weight: bold;">과제</span>
       </button>
       <button class="btn-primary" style="height: 120px; font-size: 18px; border-radius: 16px; background: #059669; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);" onclick="routeTo('vocab')">
@@ -230,8 +230,8 @@
       </div>
     </div>
 
-    <div id="adminVocabBar" style="display:none; background:#eff6ff; border:1px solid #dbeafe; padding:12px; border-radius:10px; margin:12px 0; align-items:center; gap:10px; flex-wrap:wrap;">
-      <label style="font-weight:bold; color:#1e40af;">조회 학생:</label>
+    <div id="adminVocabBar" style="display:none; background:#eef8fe; border:1px solid #dbf0fc; padding:12px; border-radius:10px; margin:12px 0; align-items:center; gap:10px; flex-wrap:wrap;">
+      <label style="font-weight:bold; color:#004b6d;">조회 학생:</label>
       <select id="adminVocabStudentSelect" style="width:180px; margin:0; padding:8px; font-size:14px; border-radius:6px; border:1px solid #cbd5e1;" onchange="onAdminVocabStudentChange(this.value)">
         <option value="">학생 선택</option>
       </select>
@@ -276,7 +276,7 @@
 <div class="panel" id="assignmentPage">
   <h2>📁 나의 과제</h2>
   
-  <h3 style="margin-top:20px; border-bottom:2px solid #2b6cb0; padding-bottom:8px;">진행 중인 과제</h3>
+  <h3 style="margin-top:20px; border-bottom:2px solid #005c82; padding-bottom:8px;">진행 중인 과제</h3>
   <div id="assignmentList" class="stack-gap" style="min-height:50px;"></div>
 
   <h3 style="margin-top:40px; border-bottom:2px solid #6b7280; padding-bottom:8px; color:#4b5563;">지난 과제 (다시 풀기)</h3>
@@ -467,7 +467,7 @@
     <div id="adminHistoryView" style="display:none; padding:20px; flex-direction:column; gap:15px; width:100%; box-sizing:border-box;">
         <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:#f9fafb; padding:12px; border-radius:8px; border:1px solid #e5e7eb;">
             <input type="text" id="historySearchName" placeholder="학생 이름 검색" oninput="renderHistoryUI()" style="width:180px; margin:0; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
-            <button onclick="loadAdminHistory()" class="btn-small" style="background:#2b6cb0; height:36px;">조회 새로고침</button>
+            <button onclick="loadAdminHistory()" class="btn-small" style="background:#005c82; height:36px;">조회 새로고침</button>
             <div style="display:flex; gap:12px; margin-left:10px;">
                 <label style="font-size:13px; font-weight:bold; cursor:pointer;"><input type="checkbox" id="chkLoadAll" style="margin-right:4px;"> 전부 불러오기</label>
                 <label style="font-size:13px; font-weight:bold; cursor:pointer;"><input type="checkbox" id="chkOnlyWeekly" onchange="renderHistoryUI()" style="margin-right:4px;"> 주간평가만</label>
@@ -680,17 +680,17 @@
 </div>
 
   <script src="qrcode.js?v=20261115e"></script>
-  <script src="api-utils.js?v=20261126b"></script>
+  <script src="api-utils.js?v=20261128b"></script>
   <script src="pwa.js?v=20261128a"></script>
   <script src="notice-points.js?v=20261119a"></script>
   <script src="tarot.js?v=20261126a"></script>
-  <script src="vocab.js?v=20261124b"></script>
-  <script src="student-quiz.js?v=20261126b"></script>
+  <script src="vocab.js?v=20261128b"></script>
+  <script src="student-quiz.js?v=20261128b"></script>
   <script src="ink.js?v=20261118a"></script>
-  <script src="admin-maker.js?v=20261122c"></script>
+  <script src="admin-maker.js?v=20261128b"></script>
   <script src="qbank.js?v=20261120b"></script>
   <script src="students.js?v=20261117a"></script>
-  <script src="print-report.js?v=20261120a"></script>
+  <script src="print-report.js?v=20261128b"></script>
   <script src="app-core.js?v=20261121b"></script>
 </body>
 </html>
